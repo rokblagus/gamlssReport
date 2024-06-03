@@ -10,7 +10,7 @@ extract_terms(object)
 \item{object}{An object of class \code{"gamlss"}.}
 }
 \description{
-aux function used by gamlssReport; not intendent to be used by the user.
+aux function used by \code{\link{gamlssReport}}; not intendent to be used by the user.
 }
 \examples{
 library(gamlss)

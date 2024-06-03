@@ -9,11 +9,11 @@
 \arguments{
 \item{x}{an object of class \code{"gamlssReport"} obtained as a call to \code{\link{gamlssReport}}.}
 
-\item{digits_range}{a numeric value determining how many digits to display for range of x; defaults to Inf (no rounding).}
+\item{digits_range}{a numeric value determining how many digits to display for range of x; defaults to \code{Inf} (no rounding).}
 
-\item{digits_coefs}{a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to Inf (no rounding).}
+\item{digits_coefs}{a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to \code{Inf} (no rounding).}
 
-\item{digits_knots}{a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to Inf (no rounding).}
+\item{digits_knots}{a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to \code{Inf} (no rounding).}
 }
 \description{
 Prints the extracted information that can be used in the publications

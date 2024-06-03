@@ -8,7 +8,26 @@ gamlssReport(object)
 }
 \arguments{
 \item{object}{an object of class \code{"gamlss"}.
-Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using pb()).}
+Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using \code{pb()}).}
+}
+\value{
+An object of class \code{"gamlssReport"} for which \code{print}, \code{plot}, and \code{predict} functions are available.
+A list with components
+\itemize{
+\item{\code{family}} {the distribution family used when fitting GAMLSS}
+\item{\code{params}} {the names of the fitted parameters, i.e. mu, sigma, nu, tau}
+\item{\code{link}} {the link function for the model used for each parameter (a named list, with names corresponding to the parameters)}
+\item{\code{coef.beta}} {the linear coefficients for each parameter (a named list, with names corresponding to the parameters)}
+\item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to mdel non-linear association (a named list, with names corresponding to the parameters).}
+\item{\code{knots.spline}} {the knots used to form the B-spline basis for the P-spline (a named list, with names corresponding to the parameters)}
+\item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+\item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+\item{\code{terms}} {details about the fixed effects and nonlinear term}
+\itemize{
+\item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
+\item{\code{splinevar}} {name of the variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+}
+}
 }
 \description{
 The function extracts the paramaters of the fitted GAMLSS object.

@@ -8,9 +8,25 @@
 #'
 #'
 #' @param object an object of class \code{"gamlss"}.
-#' Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using pb()).
+#' Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using \code{pb()}).
 #'
-#'
+#' @return An object of class \code{"gamlssReport"} for which \code{print}, \code{plot}, and \code{predict} functions are available.
+#' A list with components
+#' \itemize{
+#' \item{\code{family}} {the distribution family used when fitting GAMLSS}
+#' \item{\code{params}} {the names of the fitted parameters, i.e. mu, sigma, nu, tau}
+#' \item{\code{link}} {the link function for the model used for each parameter (a named list, with names corresponding to the parameters)}
+#' \item{\code{coef.beta}} {the linear coefficients for each parameter (a named list, with names corresponding to the parameters)}
+#' \item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to mdel non-linear association (a named list, with names corresponding to the parameters).}
+#' \item{\code{knots.spline}} {the knots used to form the B-spline basis for the P-spline (a named list, with names corresponding to the parameters)}
+#' \item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+#' \item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+#' \item{\code{terms}} {details about the fixed effects and nonlinear term}
+#' \itemize{
+#' \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
+#' \item{\code{splinevar}} {name of the variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+#' }
+#' }
 #' @seealso \code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
@@ -74,9 +90,9 @@ res
 #' @description Prints the extracted information that can be used in the publications
 #'
 #' @param x an object of class \code{"gamlssReport"} obtained as a call to \code{\link{gamlssReport}}.
-#' @param digits_range a numeric value determining how many digits to display for range of x; defaults to Inf (no rounding).
-#' @param digits_coefs a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to Inf (no rounding).
-#' @param digits_knots a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to Inf (no rounding).
+#' @param digits_range a numeric value determining how many digits to display for range of x; defaults to \code{Inf} (no rounding).
+#' @param digits_coefs a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to \code{Inf} (no rounding).
+#' @param digits_knots a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to \code{Inf} (no rounding).
 #'
 #'
 #' @seealso \code{\link{gamlssReport}}, \code{\link{plot.gamlssReport}}
@@ -142,19 +158,25 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 
 #' @title Plot centiles
 #'
-#' @description Function \code{"plot.gamlssReport"} plots the centile curves for the object created by \code{"gamlssReport"}.
+#' @description Function \code{"plot.gamlssReport"} plots the centile curves for the object created by \code{\link{gamlssReport}}.
 #'
 #'
-#' @param x An object of class \code{"gamlssReport"} representing the GAMLSS model summarized by the function \code{"gamlssReport"}.
+#' @param x An object of class \code{"gamlssReport"} representing the GAMLSS model summarized by the function \code{\link{gamlssReport}}.
 #' @param xname name (a character of length one) of the x variable used on the x-axis of the plot.
 #' Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.
 #' @param range.x a numeric vector of length 2 specifying the range of x for which to show the centiles.
-#' @param centiles a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{"c(0.1,0.5,0.9)"}.
-#' @param newdata the data.frame with a single row containig the values of the other variables that were used when fitting the model, set to NULL (default) if the model only has a single x. Needs to be nonnull if there are more xs. The names of the variables must exactly match the names used when fitting GAMLSS.
-#' @param return.object logical, if TRUE an object that can be used to make a plot is returned instead of the plot. Defaults to \code{"FALSE"}.
-#' @param seq.length length of the sequence for "new x". Defaults to \code{"1e5"}.
+#' @param centiles a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{c(0.1,0.5,0.9)}.
+#' @param newdata the data.frame with a single row containig the values of the other variables that were used when fitting the model, set to \code{NULL} (default) if the model only has a single x. Needs to be nonnull if there are more xs. The names of the variables must exactly match the names used when fitting GAMLSS.
+#' @param return.object logical, if TRUE an object that can be used to make a plot is returned instead of the plot. Defaults to \code{FALSE}.
+#' @param seq.length length of the sequence for "new x". Defaults to \code{1e5}.
 #' @param ... other arguments controling the appearance of the plot.
 #'
+#' @return if \code{return.object=TRUE} returns a list with components
+#' \itemize{
+#' \item{\code{x}} {vector of length \code{seq.length} containing xs for which the scores are calculated}
+#' \item{\code{y}} {a list of length \code{length(centiles)} containig the scores; each element of the list is a vector of length \code{length(centiles)}}
+#' \item{\code{cent}} {vector of length \code{length(centiles)} listing the centiles}
+#' }
 #' @seealso \code{\link{gamlssReport}}, \code{\link{print.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
@@ -165,12 +187,12 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 #' m.aids1<-gamlssReport(aids1)
-#' plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")))
+#' plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")),xlab="x",ylab="score")
 #'
 #' data(abdom)
 #' mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
 #' m.mod<-gamlssReport(mod)
-#' plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2))
+#' plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),xlab="x",ylab="score")
 
 
 plot.gamlssReport<-function(x,xname,range.x,centiles=c(0.1,0.5,0.9),newdata=NULL,return.object=FALSE,seq.length=1e5,...){
@@ -230,8 +252,13 @@ object<-x
 #' @description Using the object generated by \code{\link{gamlssReport}}, it makes predictions (for the parameters), based on the new data
 #'
 #' @param x the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
-#' @param newdata A dataframe containig all the variables (the names must match comepletely) needed to make predictions; see details for factors.
+#' @param newdata A dataframe containing all the variables (the names must match comepletely) needed to make predictions; see details for factors.
 #'
+#' @return a list with components
+#' \itemize{
+#' \item{\code{lp}} {a named list containing the linear predictors (the names corespond to the fitted parameters, e.g. \code{mu}, \code{sigma}, \code{nu}, and \code{tau})}
+#' \item{\code{fv}} {a named list containing the fitted values (the names corespond to the fitted parameters, e.g. \code{mu}, \code{sigma}, \code{nu}, and \code{tau})}
+#' }
 #' @details For factors enter a value; this value must be an existing level of the factor. For the reference value enter \code{"reference"}.
 #'
 #' @seealso \code{\link{gamlssReport}}
@@ -284,7 +311,8 @@ object<-x
 #' @param y the score for which to calculate the centile.
 #' @param newdata a dataframe containing the Xs for which to evaluate the centile.
 #'
-#' @details y can be a vector, in this case newdata need to be a dataframe with single row, or dataframe with the same no of rows as y; if y is a scalar newdata can have as many rows as desired; see examples.
+#' @return a vector containing the centiles
+#' @details \code{y} can be a vector, in this case \code{newdata} need to be a dataframe with single row, or dataframe with the same no of rows as \code{y}; if \code{y} is a scalar \code{newdata} can have as many rows as desired; see examples.
 #'
 #' @seealso \code{\link{gamlssReport}}, \code{\link{predict.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
@@ -330,7 +358,8 @@ centile.gamlssReport<-function(object,y,newdata){
 #' @param centile the centile for which to calculate the score.
 #' @param newdata a dataframe containing the Xs for which to evaluate the centile.
 #'
-#' @details centile can be a vector, in this case newdata need to be a dataframe with single row, or dataframe with the same no of rows as centile; if centile is a scalar newdata can have as many rows as desired; see examples.
+#' @return a vector containing the scores
+#' @details \code{centile} can be a vector, in this case \code{newdata} need to be a dataframe with single row, or dataframe with the same no of rows as \code{centile}; if \code{centile} is a scalar \code{newdata} can have as many rows as desired; see examples.
 #'
 #' @seealso \code{\link{gamlssReport}}, \code{\link{predict.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
@@ -370,7 +399,7 @@ score.gamlssReport<-function(object,centile,newdata){
 #' @description Internal function used by \code{\link{predict.gamlssReport}}; not intended to be used by the user.
 #'
 #' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
-#' @param xnew.spline a named list containing a vector of values for the variable that is modeled as P-spline in pb in a call to gamlss; needs to be of the same length as the number of parameters (mu, sigma, nu, tau), NULL if the parameter does not have a pb term.
+#' @param xnew.spline a named list containing a vector of values for the variable that is modeled as P-spline in \code{pb()} in a call to \code{gamlss}; needs to be of the same length as the number of parameters (\code{mu}, \code{sigma}, \code{nu}, \code{tau}), \code{NULL} if the parameter does not have a P-spline term.
 #' @param z.new a named list containing fixed effects design matrix for each parameter.
 #'
 #' @seealso \code{\link{predict.gamlssReport}}
@@ -420,7 +449,7 @@ make_prediction<-function(object,xnew.spline,z.new){
 
 
 #' @title Aux extract function
-#' @description aux function used by gamlssReport; not intendent to be used by the user.
+#' @description aux function used by \code{\link{gamlssReport}}; not intendent to be used by the user.
 #'
 #'
 #' @param object An object of class \code{"gamlss"}.
@@ -466,7 +495,7 @@ extract_terms<-function(object){
 
       }
 
-      logic<-grepl("pb",nms) #if TRUE we know that for this mu we have some pb terms, this should go to spline var
+      logic<-grepl("pb",nms)
 
       if (sum(logic)!=0) {
 
@@ -496,12 +525,12 @@ extract_terms<-function(object){
 
 
 #' @title Aux function to recreate the B-spline basis
-#' @description aux function used by predict.gamlssReport; not intendent to be used by the user.
+#' @description aux function used by \code{\link{predict.gamlssReport}}; not intendent to be used by the user.
 #'
 #'
 #' @param newx vector containing values of x for which the B-spline bases are to be calculated.
-#' @param knots the vector of knots; currently only the length(knots) matters (ie we assumed that knots in call to GAMLSS were uniformly set)
-#' @param degree the degree of the spline used in pb().
+#' @param knots the vector of knots; currently only the \code{length(knots)} matters (ie we assumed that knots in call to \code{gamlss} were uniformly set)
+#' @param degree the degree of the spline used in \code{pb()}.
 #' @param rng vector with 2 elements, min(x) and max(x)
 #'
 #' @seealso \code{\link{predict.gamlssReport}}

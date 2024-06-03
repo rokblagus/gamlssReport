@@ -16,25 +16,33 @@
 )
 }
 \arguments{
-\item{x}{An object of class \code{"gamlssReport"} representing the GAMLSS model summarized by the function \code{"gamlssReport"}.}
+\item{x}{An object of class \code{"gamlssReport"} representing the GAMLSS model summarized by the function \code{\link{gamlssReport}}.}
 
 \item{xname}{name (a character of length one) of the x variable used on the x-axis of the plot.
 Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.}
 
 \item{range.x}{a numeric vector of length 2 specifying the range of x for which to show the centiles.}
 
-\item{centiles}{a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{"c(0.1,0.5,0.9)"}.}
+\item{centiles}{a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{c(0.1,0.5,0.9)}.}
 
-\item{newdata}{the data.frame with a single row containig the values of the other variables that were used when fitting the model, set to NULL (default) if the model only has a single x. Needs to be nonnull if there are more xs. The names of the variables must exactly match the names used when fitting GAMLSS.}
+\item{newdata}{the data.frame with a single row containig the values of the other variables that were used when fitting the model, set to \code{NULL} (default) if the model only has a single x. Needs to be nonnull if there are more xs. The names of the variables must exactly match the names used when fitting GAMLSS.}
 
-\item{return.object}{logical, if TRUE an object that can be used to make a plot is returned instead of the plot. Defaults to \code{"FALSE"}.}
+\item{return.object}{logical, if TRUE an object that can be used to make a plot is returned instead of the plot. Defaults to \code{FALSE}.}
 
-\item{seq.length}{length of the sequence for "new x". Defaults to \code{"1e5"}.}
+\item{seq.length}{length of the sequence for "new x". Defaults to \code{1e5}.}
 
 \item{...}{other arguments controling the appearance of the plot.}
 }
+\value{
+if \code{return.object=TRUE} returns a list with components
+\itemize{
+\item{\code{x}} {vector of length \code{seq.length} containing xs for which the scores are calculated}
+\item{\code{y}} {a list of length \code{length(centiles)} containig the scores; each element of the list is a vector of length \code{length(centiles)}}
+\item{\code{cent}} {vector of length \code{length(centiles)} listing the centiles}
+}
+}
 \description{
-Function \code{"plot.gamlssReport"} plots the centile curves for the object created by \code{"gamlssReport"}.
+Function \code{"plot.gamlssReport"} plots the centile curves for the object created by \code{\link{gamlssReport}}.
 }
 \examples{
 library(gamlss)
@@ -43,12 +51,12 @@ library(splines)
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 m.aids1<-gamlssReport(aids1)
-plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")))
+plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")),xlab="x",ylab="score")
 
 data(abdom)
 mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
 m.mod<-gamlssReport(mod)
-plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2))
+plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),xlab="x",ylab="score")
 }
 \seealso{
 \code{\link{gamlssReport}}, \code{\link{print.gamlssReport}}

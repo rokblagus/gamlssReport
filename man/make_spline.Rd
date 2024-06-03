@@ -9,14 +9,14 @@ make_spline(newx, knots, degree, rng)
 \arguments{
 \item{newx}{vector containing values of x for which the B-spline bases are to be calculated.}
 
-\item{knots}{the vector of knots; currently only the length(knots) matters (ie we assumed that knots in call to GAMLSS were uniformly set)}
+\item{knots}{the vector of knots; currently only the \code{length(knots)} matters (ie we assumed that knots in call to \code{gamlss} were uniformly set)}
 
-\item{degree}{the degree of the spline used in pb().}
+\item{degree}{the degree of the spline used in \code{pb()}.}
 
 \item{rng}{vector with 2 elements, min(x) and max(x)}
 }
 \description{
-aux function used by predict.gamlssReport; not intendent to be used by the user.
+aux function used by \code{\link{predict.gamlssReport}}; not intendent to be used by the user.
 }
 \examples{
 library(splines)
