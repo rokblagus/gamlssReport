@@ -1,0 +1,95 @@
+library(gamlss)
+library(splines)
+
+data(aids)
+fit<-gamlss(y~qrt+pb(x,df=4),data=aids,family=PO)
+
+m2<-gamlssReport(fit)
+
+predict(m2,newdata=data.frame(qrt="reference",x=2))$lp$mu
+predict(fit,newdata=data.frame(qrt=1,x=2))
+#isto
+
+predict(m2,newdata=data.frame(qrt="reference",x=2.4))$lp$mu
+predict(fit,newdata=data.frame(qrt=1,x=2.4))
+#ni isto
+
+predict(m2,newdata=data.frame(qrt="reference",x=4.5))$lp$mu
+predict(fit,newdata=data.frame(qrt=1,x=4.5))
+
+new.data.r<-data.frame(qrt=rep("reference",100),x=seq(from=1.1,to=1.9,length.out = 100))
+new.data.g<-data.frame(qrt=rep(1,100),x=seq(from=1.1,to=1.9,length.out = 100))
+
+pr<-predict(m2,newdata=new.data.r)$lp$mu
+pg<-predict(fit,newdata=new.data.g)
+
+plot(pr-pg)
+
+
+pr2<-predict(m2,newdata=new.data.r[50,])$lp$mu
+pg2<-predict(fit,newdata=new.data.g[50,])
+
+pr[50]
+pg[50]
+
+set.seed(1)
+aids$z<-runif(nrow(aids))
+fit<-gamlss(y~qrt+pb(z,df=8),data=aids,family=PO)
+
+m2<-gamlssReport(fit)
+
+newdata<-data.frame(qrt=1,z=0.25)
+
+predict(m2,newdata=data.frame(qrt="reference",z=0.25))$lp$mu
+predict(fit,newdata=data.frame(qrt=1,z=0.25))
+
+
+fit<-gamlss(y~qrt+pb(z,df=10),data=aids,family=PO)
+
+m2<-gamlssReport(fit)
+
+
+
+pp<-predict(m2,newdata=data.frame(qrt="reference",z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)))$lp$mu
+pp2<-predict(fit,newdata=data.frame(qrt=1,z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)))
+
+plot(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),pp,type="l",col="red")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),pp2)
+
+
+
+
+make_spline<-function(newx,knots,degree,rng){ #this will only work if in pb they used uniformly set knots!
+  
+  xr<-rng[2]
+  xl<-rng[1]
+  ndx<-length(knots)-degree #number of knots-degree!
+  xmax<-xr + 0.01 * (xr - xl)
+  xmin<-xl - 0.01 * (xr - xl)
+  dt<-(xmax - xmin) / ndx
+  knots2<-seq(xmin - degree * dt, xmax + degree * dt, by = dt)
+   
+  B<-bbase( x = newx,xl=xl,xr=xr,ndx=ndx,deg=degree)
+  #bbase and makeSpline give ex the same res! so its not due to rounding in the b-spline basis
+  B
+  
+}
+
+#is this what they are doing
+
+
+x<-fit$mu.s #lp for smooth terms
+ss<-spline(aids$z[order(aids$z)],x[order(aids$z)],n=1e6)
+
+predl<-cbind(t(matrix(c(1,0,0,0),nrow=4,ncol=length(ss$x))),ss$x)%*%fit$mu.coefficients
+
+pred<-predl+ss$y
+
+plot(ss$x,pred,type="l")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),pp2,col="red")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),pp,col="blue")
+
+#no, it seems as if this is what we are doing...
+
+
+
