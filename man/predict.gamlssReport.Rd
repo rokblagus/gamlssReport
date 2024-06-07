@@ -26,7 +26,7 @@ For factors enter a value; this value must be an existing level of the factor. F
 }
 \examples{
 library(gamlss)
-library(splines)
+
 
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)

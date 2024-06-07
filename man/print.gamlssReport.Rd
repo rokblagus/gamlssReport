@@ -20,7 +20,7 @@ Prints the extracted information that can be used in the publications
 }
 \examples{
 library(gamlss)
-library(splines)
+
 
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)

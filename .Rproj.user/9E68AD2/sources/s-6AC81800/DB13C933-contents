@@ -1,0 +1,39 @@
+
+
+library(gamlss)
+data(aids)
+
+set.seed(1)
+aids$z<-runif(nrow(aids))
+
+fit<-gamlss(y~pb(z,df=10)+qrt,data=aids,family=PO)
+m<-gamlssReport(fit)
+
+newm<-data.frame(qrt="3",z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000))
+mp<-predict(m,newm)$lp$mu
+gp<-predict(fit,newdata=data.frame(qrt=3,z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)),what="mu",type="link")
+
+plot(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),mp,type="l",col="red")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),gp)
+
+newm2<-aids[aids$qrt==3,]
+newm2$qrt<-as.character(newm2$qrt)
+#newm2$qrt[newm2$qrt=="1"]<-"reference"
+
+mp2<-predict(m,newm2)$lp$mu
+gp2<-predict(fit,newdata=aids[aids$qrt==3,],what="mu",type="link")
+
+plot(aids$z[aids$qrt==3],mp2,type="p",col="red",xlim=c(0,1))
+points(aids$z[aids$qrt==3],gp2,pch="X")
+
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),gp,col="blue")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),mp,col="red")
+
+mp<-predict(m,newm)$fv$mu
+gp<-predict(fit,newdata=data.frame(qrt=3,z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)),what="mu",type="response")
+
+plot(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),mp,type="l",col="red")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),gp)
+
+
+

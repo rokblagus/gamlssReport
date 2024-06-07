@@ -1,0 +1,131 @@
+setwd("C:/Users/rblagus/Documents/gamlssReport")
+source("gamlssReport.R")
+
+library(gamlss) #note: in R4.4.0 gamlss object does no longer seem to have .coefSmo term, but only .s terms, no coefSmo is still there!
+library(splines2) #note: in R4.4.0 splines is no longer available, but we could use splines2 (does it work?? on aids ex. it seems ok)
+
+data(aids)
+aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
+m.aids1<-gamlssReport(aids1)
+m.aids1
+
+
+new_data<-data.frame(x=c(10,15,2,4),qrt=c("reference",3,4,2) )
+predict.gamlssReport(m.aids1,newdata=new_data   )
+
+predict(aids1,newdata=data.frame(x=c(10,15,2,4),qrt=c(1,3,4,2)),what="mu",type="link")
+
+#add new var
+
+aids$z<-runif(nrow(aids))
+
+aids2<-gamlss(y~pb(x,df=4)+qrt+pb(z,df=8),data=aids,family=PO)
+aids3<-gamlss(y~pb(z,df=8)+qrt+pb(x,df=4),data=aids,family=PO)
+
+aids0<-gamlss(y~x+qrt,data=aids,family=PO)
+
+gamlssReport(aids0)
+
+extract_terms(aids0)
+extract_terms(aids1)
+extract_terms(aids2)
+extract_terms(aids3)
+m1<-gamlssReport(aids0)
+m2<-gamlssReport(aids1)
+m3<-gamlssReport(aids2)
+m4<-gamlssReport(aids3)
+
+print.gamlssReport(m1)
+print.gamlssReport(m2)
+print.gamlssReport(m3)
+
+
+
+
+
+ 
+object<-aids1
+
+#if there are more smooth terms, then 
+
+object[[paste(i,".coefSmo",sep="")]]
+
+#is a list, its length is the same as the no of non-linear terms
+
+aids3<-gamlss(y~x+qrt,data=aids,family=PO)
+gamlssReport(aids3)
+
+
+make_prediction(m1,list("mu"=NULL),
+list("mu"=rbind(c(1,1,0,0,0),c(1,6,1,0,0),c(1,45,1,0,0))))
+
+predict(aids0,newdata=data.frame(x=c(1,6,45),qrt=c(1,2,2)),what="mu",type="link")
+
+make_prediction(m2,list("mu"=list("x"=c(1,6,45))),
+list("mu"=rbind(c(1,1,0,0,0),c(1,6,1,0,0),c(1,45,1,0,0))))
+
+predict(aids1,newdata=data.frame(x=c(1,6,45),qrt=c(1,2,2)),what="mu",type="link")
+
+
+make_prediction(m3,list("mu"=list("x"=c(1,6,45),"z"=c(0.2,0.5,0.25))),
+list("mu"=rbind(c(1,1,0,0,0,0.2),c(1,6,1,0,0,0.5),c(1,45,1,0,0,0.25))))
+
+predict(aids2,newdata=data.frame(x=c(1,6,45),z=c(0.5,0.25,0.7),qrt=c(1,2,2)),what="mu",type="link")
+
+
+aids30<-gamlss(y~pb(z,df=4)+qrt,data=aids,family=PO)
+m30<-gamlssReport(aids30)
+
+predict(aids30,newdata=data.frame(z=c(0.5,0.25,0.7),qrt=c(1,2,2)),what="mu",type="link")
+make_prediction(m30,list("mu"=list("z"=c(0.5,0.25,0.7))),
+list("mu"=rbind(c(1,0.5,0,0,0),c(1,0.25,1,0,0),c(1,0.7,1,0,0))))
+#not the same, why, the B-spline basis??
+#also with the "old" function! we need to solve this.
+
+
+predict(aids30,newdata=data.frame(z=aids$z[1:5],qrt=aids$qrt[1:5]),what="mu",type="link")
+make_prediction(m30,list("mu"=list("z"=aids$z[1:5])),
+list("mu"=rbind(c(1,aids$z[1],0,0,0),c(1,aids$z[2],1,0,0),c(1,aids$z[3],0,1,0),c(1,aids$z[4],0,0,1),
+c(1,aids$z[5],0,0,0))))
+#seems ok,
+#why doesnt it work for new??
+
+
+predict.gamlssReport(m30,newdata=data.frame(z=0.2,qrt="reference"))
+predict(aids30,newdata=data.frame(z=0.2,qrt=1),what="mu",type="link")
+#not the same
+
+aids22<-aids
+aids22$qrt<-as.character(aids22$qrt)
+aids22$qrt[aids22$qrt==1]<-"reference"
+
+mp<-predict.gamlssReport(m30,newdata=aids2)$lp$mu
+gp<-predict(aids30,newdata=aids,what="mu",type="link")
+#on orig data it works ok, the issue are new data! why??
+
+
+mp<-predict.gamlssReport(m3,newdata=aids22)$lp$mu
+gp<-predict(aids2,newdata=aids,what="mu",type="link")
+
+
+mp2<-predict.gamlssReport(m4,newdata=aids22)$lp$mu
+gp2<-predict(aids3,newdata=aids,what="mu",type="link")
+
+mp0<-predict.gamlssReport(m1,newdata=aids22)$lp$mu
+gp0<-predict(aids0,newdata=aids,what="mu",type="link")
+
+
+
+save(m3,file="my.Rdata")
+save(aids2,file="gm.Rdata")
+
+              
+
+aids44<-aids
+aids44$z<-aids44$z*100
+
+aids44<-gamlss(y~pb(x,df=4)+qrt+pb(z,df=8),data=aids44,family=PO)
+m44<-gamlssReport(aids44)
+
+mp44<-predict.gamlssReport(m44,newdata=data.frame(x=1,qrt="reference",z=10))$lp$mu
+gp44<-predict(aids44,newdata=data.frame(x=1,qrt=1,z=10),what="mu",type="link")

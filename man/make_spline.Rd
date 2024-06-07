@@ -19,7 +19,7 @@ make_spline(newx, knots, degree, rng)
 aux function used by \code{\link{predict.gamlssReport}}; not intendent to be used by the user.
 }
 \examples{
-library(splines)
+
 
 make_spline(10,seq(from=10,to=20,by=1),3,c(9,21))
 }

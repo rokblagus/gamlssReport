@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1717674228647.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "DB13C933",
+    "lastKnownWriteTime" : 1717740963,
+    "last_content_update" : 1717740963638,
+    "path" : "C:/Users/rblagus/MF Uni LJ Dropbox/Rok Blagus/reportingGAMLSS_paper/code/see_what_gamlssPredictForNew.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "36,0",
+        "scrollLine" : "4",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

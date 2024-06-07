@@ -46,7 +46,7 @@ Function \code{"plot.gamlssReport"} plots the centile curves for the object crea
 }
 \examples{
 library(gamlss)
-library(splines)
+
 
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)

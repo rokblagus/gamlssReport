@@ -11,19 +11,20 @@ make_prediction(object, xnew.spline, z.new)
 
 \item{xnew.spline}{a named list containing a vector of values for the variable that is modeled as P-spline in \code{pb()} in a call to \code{gamlss}; needs to be of the same length as the number of parameters (\code{mu}, \code{sigma}, \code{nu}, \code{tau}), \code{NULL} if the parameter does not have a P-spline term.}
 
-\item{z.new}{a named list containing fixed effects design matrix for each parameter.}
+\item{z.new}{a named list containing fixed effects design matrix for each parameter.
+z.new[[ii]] also needs to be a named list, with the names being equal to the names of the spline var}
 }
 \description{
 Internal function used by \code{\link{predict.gamlssReport}}; not intended to be used by the user.
 }
 \examples{
 library(gamlss)
-library(splines)
+
 
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 m.aids1<-gamlssReport(aids1)
-make_prediction(m.aids1,list("mu"=c(1,6,45)),
+make_prediction(m.aids1,list("mu"=list("x"=c(1,6,45))),
 list("mu"=rbind(c(1,1,0,0,0),c(1,6,1,0,0),c(1,45,1,0,0))))
 }
 \seealso{

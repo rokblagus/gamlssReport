@@ -8,7 +8,7 @@ gamlssReport(object)
 }
 \arguments{
 \item{object}{an object of class \code{"gamlss"}.
-Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using \code{pb()}).}
+Note: multiple smooth terms per parameter are allowed (these smooth terms had to be obtained using \code{pb()}).}
 }
 \value{
 An object of class \code{"gamlssReport"} for which \code{print}, \code{plot}, and \code{predict} functions are available.
@@ -18,14 +18,14 @@ A list with components
 \item{\code{params}} {the names of the fitted parameters, i.e. mu, sigma, nu, tau}
 \item{\code{link}} {the link function for the model used for each parameter (a named list, with names corresponding to the parameters)}
 \item{\code{coef.beta}} {the linear coefficients for each parameter (a named list, with names corresponding to the parameters)}
-\item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to mdel non-linear association (a named list, with names corresponding to the parameters).}
+\item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to model non-linear association (a named list, with names corresponding to the parameters).}
 \item{\code{knots.spline}} {the knots used to form the B-spline basis for the P-spline (a named list, with names corresponding to the parameters)}
-\item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
-\item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+\item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
+\item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()}b was not used)}
 \item{\code{terms}} {details about the fixed effects and nonlinear term}
 \itemize{
 \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
-\item{\code{splinevar}} {name of the variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+\item{\code{splinevar}} {names of the variables that were used for P-splines (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 }
 }
 }
@@ -34,7 +34,7 @@ The function extracts the paramaters of the fitted GAMLSS object.
 }
 \examples{
 library(gamlss)
-library(splines)
+
 
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)

@@ -32,7 +32,7 @@
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -107,7 +107,7 @@ res
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -192,7 +192,7 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -276,7 +276,7 @@ object<-x
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -334,7 +334,7 @@ object<-x
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -381,7 +381,7 @@ centile.gamlssReport<-function(object,y,newdata){
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -423,7 +423,7 @@ score.gamlssReport<-function(object,centile,newdata){
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -460,7 +460,8 @@ make_prediction<-function(object,xnew.spline,z.new){
       lp[[i]]<-lp[[i]]+D[[ii]]%*%cfs[[ii]]
 	}
     } else {
-      lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)}
+      lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)
+    }
     fv[[i]]<-make_inverse(object$link[[i]],lp[[i]])
 
   }
@@ -567,27 +568,51 @@ extract_terms<-function(object){
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
 #' @examples
-#' library(splines)
+#'
 #'
 #' make_spline(10,seq(from=10,to=20,by=1),3,c(9,21))
 
 
 
 make_spline<-function(newx,knots,degree,rng){ #this will only work if in pb they used uniformly set knots!
+##taken from pb gamlss
+  bbase <- function(x, xl, xr, ndx, deg) #note we dont allow quantile=TRUE option!
+  {
+    tpower <- function(x, t, p)
+      # Truncated p-th power function
+      (x - t) ^ p * (x > t)
+    # DS xl= min, xr=max, ndx= number of points within
+    # Construct B-spline basis
+    # if quantiles=TRUE use different bases
+    dx <- (xr - xl) / ndx # DS increment
+
+      knots <- seq(xl - deg * dx, xr + deg * dx, by = dx)
+      P <- outer(x, knots, tpower, deg)# calculate the power in the knots
+      n <- dim(P)[2]
+      D <- diff(diag(n), diff = deg + 1) / (gamma(deg + 1) * dx ^ deg) #
+      B <- (-1) ^ (deg + 1) * P %*% t(D)
+      attr(B, "knots") <- knots[-c(1:(deg-1), (n-(deg-2)):n)]
+      B
+
+  }
+##main f starts here
 
   xr<-rng[2]
   xl<-rng[1]
   ndx<-length(knots)-degree #number of knots-degree!
   xmax<-xr + 0.01 * (xr - xl)
   xmin<-xl - 0.01 * (xr - xl)
-  dt<-(xmax - xmin) / ndx
-  knots2<-seq(xmin - degree * dt, xmax + degree * dt, by = dt)
+  #dt<-(xmax - xmin) / ndx #use if splineDesign
+  #knots2<-seq(xmin - degree * dt, xmax + degree * dt, by = dt)
 
-  B<-splineDesign(knots = knots2, x = newx, ord = degree + 1, derivs = 0,outer.ok = TRUE)
+  #B<-splineDesign(knots = knots2, x = newx, ord = degree + 1, derivs = 0,outer.ok = TRUE)
+  B<-bbase(x=newx, xl=xmin, xr=xmax, ndx, deg=degree)
 
   B
 
 }
+
+
 
 
 
