@@ -1,5 +1,7 @@
 The package contains functions which can provide sharable output for the models fitted using the gamlss R package. The objects prepared by the functions do not contain any sensitive information protected by the law. (e.g. EGPR).
 
+Note: several smooth terms are allowed for each parameter. However, all had to be obtained using gamlss function pb(); the knots in B-spline basis had to be set uniformly.
+
 The list of main functions:
 
 gamlssReport::extracts the paramaters of the fitted GAMLSS object needed to make predictions (uses: extract_terms)
