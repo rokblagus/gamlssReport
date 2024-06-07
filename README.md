@@ -4,7 +4,7 @@ Note: several smooth terms are allowed for each parameter. However, all had to b
 
 The list of main functions:
 
-gamlssReport::extracts the paramaters of the fitted GAMLSS object needed to make predictions (uses: extract_terms)
+gamlssReport::extracts the parameters of the fitted GAMLSS object needed to make predictions (uses: extract_terms)
 
 print.gamlssReport::print function for objects created by gamlssReport 
 
