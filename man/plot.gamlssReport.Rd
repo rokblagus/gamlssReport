@@ -51,12 +51,14 @@ library(gamlss)
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 m.aids1<-gamlssReport(aids1)
-plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")),xlab="x",ylab="score")
+plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),
+        data.frame(qrt=c("reference")),xlab="x",ylab="score")
 
 data(abdom)
 mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
 m.mod<-gamlssReport(mod)
-plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),xlab="x",ylab="score")
+plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),
+        xlab="x",ylab="score")
 }
 \seealso{
 \code{\link{gamlssReport}}, \code{\link{print.gamlssReport}}

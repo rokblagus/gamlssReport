@@ -4,7 +4,7 @@
 \alias{print.gamlssReport}
 \title{Print function}
 \usage{
-\method{print}{gamlssReport}(x, digits_range = Inf, digits_coefs = Inf, digits_knots = Inf)
+\method{print}{gamlssReport}(x, digits_range = Inf, digits_coefs = Inf, digits_knots = Inf, ...)
 }
 \arguments{
 \item{x}{an object of class \code{"gamlssReport"} obtained as a call to \code{\link{gamlssReport}}.}
@@ -14,6 +14,8 @@
 \item{digits_coefs}{a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to \code{Inf} (no rounding).}
 
 \item{digits_knots}{a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to \code{Inf} (no rounding).}
+
+\item{...}{for extra arguments.}
 }
 \description{
 Prints the extracted information that can be used in the publications
