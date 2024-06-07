@@ -20,7 +20,7 @@
 #' \item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to model non-linear association (a named list, with names corresponding to the parameters).}
 #' \item{\code{knots.spline}} {the knots used to form the B-spline basis for the P-spline (a named list, with names corresponding to the parameters)}
 #' \item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
-#' \item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()}b was not used)}
+#' \item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 #' \item{\code{terms}} {details about the fixed effects and nonlinear term}
 #' \itemize{
 #' \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
