@@ -1,0 +1,768 @@
+
+
+###packages
+
+library(glmmTMB)
+
+library(lme4)
+
+library(xtable)
+
+library(nlme)
+
+library(car)
+
+###aux functions for creating PD
+
+##function to create PD for any param for any link for q>1
+
+
+make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param="precision",link_fun=function(x) 1/(1+exp(-x))){
+  if (is.null(match.arg(param,c("precision","variance")))) stop("param needs to be one of: precision,variance")
+  
+  q<-ncol(psi)
+  if (param=="precision") cc<-(nu-q-1)/q  
+  if (param=="variance") cc<-(nu+q+1)/q
+  
+  cc<-max(c(floor(cc),1))
+  if (param=="precision") true<-solve(psi)/cc
+  if (param=="variance") true<-psi/cc
+  ee<-eigen(true,TRUE)
+  ui<-list()
+  for (j in 1:q){
+    ui[[j]]<-sqrt(ee$values[j])*ee$vectors[,j]
+  }
+  
+    pi<-list()
+  
+  for (j in 1:length(ui)){
+    I<-diag(rep(1,length(ui[[j]])))
+      pi[[j]]<-link_fun(I%*%matrix(ui[[j]],ncol=1))
+  }
+   Y<-unlist(pi)
+  
+   id<-rep(1:q,each=q)
+  n<-rep(const,length(id))
+  
+  Zi<-matrix(0,ncol=q,nrow=q)
+  
+  for (j in 1:q){
+    Zi[j,j]<-1
+  }
+  for (j in 1:q){
+    if (j==1) Z=Zi else Z<-rbind(Z,Zi)
+  }
+  
+  fact<-cc
+  if (fact>1){
+    Y<-rep(Y,fact)
+    n<-rep(n,fact)
+    id<-rep(1:(q*fact),each=q)
+    for (j in 1:(q*fact)){
+      if (j==1) Z=Zi else Z<-rbind(Z,Zi)
+    }
+  }
+  
+   data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
+  
+   
+  list(data=data0) 
+}
+
+
+##for Poisson, q=1
+
+make_pseudo_data_rand_eigen_inter_alpha_beta<-function(alpha,beta,param="psi",const=1e8){
+  if (is.null(match.arg(param,c("psi","sigma2","logsigma2")))) stop("param needs to be one of: psi,sigma2,logsigma2")
+  
+  if (param=="psi") N<-max(c(floor(2*(alpha-1)),1))
+  if (param=="sigma2") N<-max(c(floor(2*(alpha+1)),1))
+  if (param=="logsigma2") N<-max(c(floor(2*(alpha)),1))
+  
+  var.int<-beta*2/N
+  fact<-N
+  
+  true=matrix(var.int,ncol=1,nrow=1)
+  
+  ee<-eigen(true,TRUE)
+  u1<-sqrt(ee$values[1])*ee$vectors[,1]
+   
+  
+  pi0=exp(u1[1])
+  
+  Y<-rep(c(pi0),fact)  
+  n<-rep(rep(const,1),fact)
+  id<-c(1:fact)
+  Z<-matrix(rep(1,fact),ncol=1)
+  data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
+  
+    
+  list(data=data0) 
+}
+
+
+optimwrap <- function(fn,par,lower,upper,control=list(),
+                      ...) {
+  if (is.null(control$method)) stop("must specify method in optCtrl")
+  method <- control$method
+  control$method <- NULL
+    if (method=="Brent") upper <- pmin(1e4,upper)
+  res <- optim(par=par, fn=fn, lower=lower,upper=upper,
+               control=control,method=method,...)
+  with(res, list(par  = par,
+                 fval = value,
+                 feval= counts[1],
+                 conv = convergence,
+                 message = message))
+}
+
+
+optimwrap2 <- function(fn,par,lower,upper,control=list(),
+                      hessian=TRUE,...) {
+  if (is.null(control$method)) stop("must specify method in optCtrl")
+  method <- control$method
+  control$method <- NULL
+   if (method=="Brent") upper <- pmin(1e4,upper)
+  res <- optim(par=par, fn=fn, lower=lower,upper=upper,
+               control=control,method=method,hessian=hessian,...)
+  with(res, list(par  = par,
+                 fval = value,
+                 feval= counts[1],
+                 conv = convergence,
+                 message = message))
+}
+
+my_s_delta<-function(x,digits=2){
+  paste(round(x[1],digits)," (",round(x[2],digits),")",sep="")
+}
+
+###### Example 1, sleep data
+
+optimizer<-"L-BFGS-B"
+
+sleep<-sleepstudy[sleepstudy$Days>=2,]
+
+X<-model.matrix(sleep$Reaction~sleep$Days)
+Z<-model.matrix(sleep$Reaction~sleep$Days)
+grouping<-as.numeric(sleep$Subject)
+Y<-sleep$Reaction
+
+xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
+
+ 
+fittm<-glmmTMB(Y~-1+X+(-1+Z|grouping),data=xdf,family=gaussian,control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
+
+###prior on D but not on sigma2 (we work in precision param!)
+nu=7
+psi<-solve(rbind(c(60,-20),c(-20,50)))/2
+
+#use data augmentation
+pd<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun=function(x) x)
+
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd$data$Z)))
+Za<-rbind(Z,pd$data$Z)
+weightsa<-c(rep(1,nrow(X)),pd$data$nn)
+groupinga<-c(grouping,pd$data$grouping+max(grouping))
+Ya<-c(Y,pd$data$Y)
+
+xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupinga,weights=weightsa)
+
+ 
+fit2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = gaussian(link = "identity"),
+                dispformula = ~ offset(-log(weights)),
+                data=xdfa, start=list(beta=fittm$sdr$par.fixed[1:2],betad=fittm$sdr$par.fixed[3],theta=fittm$sdr$par.fixed[4:6]),
+                control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
+)
+
+
+
+
+#implement the prior directly via penalization of the log-likelihood
+
+lin_devTMB <- function(par) {
+  lin_dev_tmp <- fittm$obj$fn
+  d11 <- exp(par[4])^2
+  d22<-exp(par[5])^2
+  rho<-par[6]/sqrt(1+par[6]^2)
+  d12<-rho*sqrt(d11*d22)
+  D<-matrix(c(d11,d12,d12,d22),ncol=2)
+  Dm<-solve(D)
+  pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
+  
+  lin_dev_tmp(par) - pen 
+}
+
+
+lin_optim_TMB <- optim(par=fittm$sdr$par.fixed, lin_devTMB, method=optimizer,hessian = TRUE)
+
+
+
+m<-lin_optim_TMB$par[4:6]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-solve(lin_optim_TMB$hessian)[4:6,4:6]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_pen<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_pen<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_pen<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+
+
+#use delta method to get SEs on the D scale for TMB
+
+m<-fit2$fit$par[4:6]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-fit2$sdr$cov.fixed[4:6,4:6]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_aug_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_aug_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_aug_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+
+m<-fittm$fit$par[4:6]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-fittm$sdr$cov.fixed[4:6,4:6]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+ 
+
+ 
+
+
+ml_tmb_sig<-c(
+my_s_delta(d1_tmb),
+my_s_delta(d2_tmb),
+my_s_delta(d3_tmb))
+
+ml_aug_tmb_sig<-c(
+  my_s_delta(d1_aug_tmb),
+  my_s_delta(d2_aug_tmb),
+  my_s_delta(d3_aug_tmb))
+
+
+ 
+
+pen_tmb_sig<-c(
+  my_s_delta(d1_pen),
+  my_s_delta(d2_pen),
+  my_s_delta(d3_pen))
+
+
+
+
+
+#put results together
+
+
+res.ml.tmb<-c(paste(
+  round(fittm$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fittm$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" "), ml_tmb_sig  )
+
+res.pd.tmb<-c(paste(
+  round(fit2$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fit2$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" "),ml_aug_tmb_sig )
+
+
+res.pen<-c(paste(
+  round(lin_optim_TMB$par,3),
+  paste("(",round(sqrt(diag(solve(lin_optim_TMB$hessian))),3),")",sep=""),sep=" "),pen_tmb_sig)
+
+
+
+ 
+res1<-cbind(res.ml.tmb, res.pen,res.pd.tmb )
+rownames(res1)<-c(paste("beta",0:1,sep=""),"dispersion",paste("theta",1:3,sep=""),"Sigma[1,1]","Sigma[2,2]","Sigma[1,2]")
+colnames(res1)<-c("ML","penalty","pseudo")
+
+
+#resax<-xtable(res1)
+
+resax2<-xtable(res1[-c(4:6),])
+
+
+
+############################
+############################
+
+###binomial example
+ 
+
+##real example
+
+(m1 <- glmer(cbind(incidence, size - incidence) ~ period + (as.numeric(period) | herd), family = binomial, data = cbpp))
+
+X<-model.matrix(~period,data=cbpp)
+Z<-model.matrix(~as.numeric(period),data=cbpp)
+grouping<-as.numeric(cbpp$herd)
+Y<-cbpp$incidence
+n<-cbpp$size
+
+
+xdf<-list(X=X,Z=Z,grouping=grouping,Y=Y,n=n)
+
+
+fittm<-glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping),data=xdf,family=binomial,control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B")))
+
+
+
+psi<-rbind(c(3,-.2),c(-.2,1))
+nu=7
+###data augmn
+pd<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun=function(x) 1/(1+exp(-x)))
+
+
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd$data$Z)))
+Za<-rbind(Z,pd$data$Z)
+groupinga<-c(grouping,max(grouping)+pd$data$grouping)
+Ya<-c(Y,pd$data$Y*pd$data$nn)
+na<-c(n,pd$data$nn)
+
+xdfa<-list(X=Xa,Z=Za,grouping=groupinga,Y=Ya,n=na)
+
+
+ 
+fit2 <- glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
+                
+                data=xdfa,  start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
+                
+                control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
+)
+
+ 
+ 
+
+##penalty
+
+bin_devTMB <- function(par) {
+  bin_dev_tmp <- fittm$obj$fn
+  d11 <- exp(par[5])^2
+  d22<-exp(par[6])^2
+  rho<-par[7]/sqrt(1+par[7]^2)
+  d12<-rho*sqrt(d11*d22)
+  D<-matrix(c(d11,d12,d12,d22),ncol=2)
+  Dm<-solve(D)
+  pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
+  
+  bin_dev_tmp(par) -pen # brez 2* !!!
+}
+
+
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE) 
+
+
+m<-bin_optim_TMB$par[5:7]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-solve(bin_optim_TMB$hessian)[5:7,5:7]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_pen<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_pen<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_pen<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+pen_tmb_sig<-c(
+  my_s_delta(d1_pen,digits=3),
+  my_s_delta(d2_pen,digits=3),
+  my_s_delta(d3_pen,digits=3))
+
+
+
+
+
+m<-fit2$fit$par[5:7]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-fit2$sdr$cov.fixed[5:7,5:7]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_aug_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_aug_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_aug_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+aug_tmb_sig<-c(
+  my_s_delta(d1_aug_tmb,digits=3),
+  my_s_delta(d2_aug_tmb,digits=3),
+  my_s_delta(d3_aug_tmb,digits=3))
+
+
+
+m<-fittm$fit$par[5:7]
+names(m)<-paste(names(m),1:3,sep="")
+vr<-fittm$sdr$cov.fixed[5:7,5:7]
+rownames(vr)<-colnames(vr)<-names(m)
+
+d1_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+tmb_sig<-c(
+  my_s_delta(d1_tmb,digits=3),
+  my_s_delta(d2_tmb,digits=3),
+  my_s_delta(d3_tmb,digits=3))
+
+
+
+
+res.ml<-c(paste(
+  round(fittm$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fittm$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" "),tmb_sig)
+
+res.pd<-c(paste(
+  round(fit2$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fit2$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" "),aug_tmb_sig)
+
+
+res.pen<-c(paste(
+  round(bin_optim_TMB$par,3),
+  paste("(",round(sqrt(diag(solve(bin_optim_TMB$hessian))),3),")",sep=""),sep=" "),pen_tmb_sig)
+
+res1<-cbind(res.ml,res.pen,res.pd)
+rownames(res1)<-c(paste("beta",0:3,sep=""),paste("theta",1:3,sep=""),paste("sigma",1:3,sep=""))
+colnames(res1)<-c("ML","penalty","pseudo")
+
+
+#resax<-xtable(res1)
+
+resax<-xtable(res1[-c(5:7),])
+
+
+
+##############################
+
+##############################
+
+###poisson example 
+ 
+
+(full_mod1 <- glmer(TICKS~YEAR+HEIGHT+(1|BROOD)+(1|INDEX)+(1|LOCATION), family="poisson",data=grouseticks)) #note that identity link does not work here; in principle we could howeve stil use our approach, but we would than need to rely on the weights.
+#note that (1|INDEX) is in the model so that we account for overdisperions (not that for each row we assume some random intercpet, which does not change the mean of Yij but it changes its variance so that each ij can have a different variance)
+grouseticks$HEIGHT_C<-grouseticks$HEIGHT-mean(grouseticks$HEIGHT)
+optimizer="L-BFGS-B"
+
+
+alpha1=2
+beta1=2
+alpha2=2
+beta2=2
+
+
+
+
+X<-model.matrix(TICKS~YEAR+HEIGHT_C,data=grouseticks)
+ 
+Z1<-model.matrix(~1,data=grouseticks)
+Z2<-model.matrix(~1,data=grouseticks)
+Z3<-model.matrix(~1,data=grouseticks)
+Y<-grouseticks$TICKS
+grouping1<-as.numeric(grouseticks$BROOD)
+grouping2<-as.numeric(grouseticks$INDEX)
+grouping3<-as.numeric(grouseticks$LOCATION)
+
+xdf<-list(Y=Y,X=X,Z1=Z1,Z2=Z2,Z3=Z3,grouping1=grouping1,grouping2=grouping2,grouping3=grouping3)
+ 
+fittm<-glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),data=xdf,family=poisson,
+               control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
+
+ 
+
+
+
+pd1<-make_pseudo_data_rand_eigen_inter_alpha_beta(alpha=alpha1,beta=beta1,param="psi",const=1e8)
+
+
+pd2<-make_pseudo_data_rand_eigen_inter_alpha_beta(alpha=alpha2,beta=beta2,param="psi",const=1e8)
+
+
+
+ 
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(X),nrow=nrow(pd2$data$Z)))
+Z1a<-rbind(Z1,pd1$data$Z,matrix(0,ncol=ncol(Z1),nrow=nrow(pd2$data$Z)))
+Z2a<-rbind(Z2,matrix(0,ncol=ncol(Z2),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(Z2),nrow=nrow(pd2$data$Z)))
+Z3a<-rbind(Z3,matrix(0,ncol=ncol(Z3),nrow=nrow(pd1$data$Z)),pd2$data$Z)
+
+Ya<-c(Y,pd1$data$Y,pd2$data$Y)
+weightsa<-c(rep(1,length(Y)),pd1$data$nn,pd2$data$nn)
+
+
+grouping1a<-c(grouping1,max(grouping1)+pd1$data$grouping,max(max(grouping1)+pd1$data$grouping)+pd2$data$grouping)
+grouping2a<-c(grouping2,max(grouping2)+pd1$data$grouping,max(max(grouping2)+pd1$data$grouping)+pd2$data$grouping)
+grouping3a<-c(grouping3,max(grouping3)+pd1$data$grouping,max(max(grouping3)+pd1$data$grouping)+pd2$data$grouping)
+
+Ya2<-Ya*weightsa
+offset<-log(weightsa)
+
+
+xdfa<-list(Y=Ya2,ofset=offset,X=Xa,Z1=Z1a,Z2=Z2a,Z3=Z3a,grouping1=grouping1a,grouping2=grouping2a,grouping3=grouping3a)
+
+
+
+
+fit2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
+                offset=ofset,
+                data=xdfa, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
+                
+                control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
+)
+
+
+ 
+ 
+
+
+pois_devTMB <- function(par) {
+  bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
+  x1 <-  1/exp(par[5])^2 #parameter ki ga penaliziras, moras ga najti!
+  pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
+  
+  x2<- 1/exp(par[7])^2
+  pen2<-((alpha2-1)*log(x2)-(beta2*(x2)))
+  
+  bin_dev_tmp(par) -pen1-pen2  # brez 2* !!!
+}
+
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+ 
+ 
+res.ml<-paste(
+  round(fittm$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fittm$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" ")
+
+res.pd<-paste(
+  round(fit2$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fit2$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" ")
+
+
+res.pen<-paste(
+  round(pois_optim_TMB$par,3),
+  paste("(",round(sqrt(diag(solve(pois_optim_TMB$hessian))),3),")",sep=""),sep=" ")
+
+res1<-cbind(res.ml,res.pd,res.pen)
+rownames(res1)<-c(paste("beta",0:3,sep=""),paste("theta",1:3,sep=""))
+colnames(res1)<-c("ML","pseudo","penalty")
+
+##add res at Sigma level
+#ML
+m<-fittm$sdr$par.fixed[5:7]
+vr<-fittm$sdr$cov.fixed[5:7,5:7]
+names(m)<-paste0("theta",1:3)
+rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_tmb<-deltaMethod(m,g.="exp(theta3)^2",vcov.=vr)
+
+tmb_sig<-c(
+  my_s_delta(d1_tmb,digits=3),
+  my_s_delta(d2_tmb,digits=3),
+  my_s_delta(d3_tmb,digits=3))
+
+#PD
+m<-fit2$sdr$par.fixed[5:7]
+vr<-fit2$sdr$cov.fixed[5:7,5:7]
+names(m)<-paste0("theta",1:3)
+rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_aug_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_aug_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_aug_tmb<-deltaMethod(m,g.="exp(theta3)^2",vcov.=vr)
+
+tmb_aug_sig<-c(
+  my_s_delta(d1_aug_tmb,digits=3),
+  my_s_delta(d2_aug_tmb,digits=3),
+  my_s_delta(d3_aug_tmb,digits=3))
+#PEN
+
+m<-pois_optim_TMB$par[5:7]
+vr<-solve(pois_optim_TMB$hessian)[5:7,5:7]
+names(m)<-paste0("theta",1:3)
+rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_pen_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_pen_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_pen_tmb<-deltaMethod(m,g.="exp(theta3)^2",vcov.=vr)
+
+tmb_pen_sig<-c(
+  my_s_delta(d1_pen_tmb,digits=3),
+  my_s_delta(d2_pen_tmb,digits=3),
+  my_s_delta(d3_pen_tmb,digits=3))
+
+res.sig<-cbind(tmb_sig,tmb_aug_sig,tmb_pen_sig)
+
+res1.sig<-rbind(res1,res.sig)
+rownames(res1.sig)[8:10]<-paste0("sigma2",1:3)
+
+res1<-res1.sig[,c(1,3,2)]
+
+
+#resfa<-xtable(res1)
+resfa<-xtable(res1[-c(5:7),])
+
+
+#######################################
+#######################################
+
+###gamma example
+
+
+optimizer<-"L-BFGS-B"
+
+
+data(aids, package = "JM")
+aids$CD4[aids$CD4==0]<-1e-8
+
+aidss<-aids[aids$gender=="male"&aids$AZT=="failure"&aids$prevOI=="AIDS",]
+fit<-glmmTMB(CD4~obstime + drug + obstime:drug + 
+               (1 + obstime | patient), data = aidss,family=Gamma(link="log"))
+
+ 
+psi<-solve(matrix(c(3,2,2,3),ncol=2))
+nu=15
+
+d2222<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun = function(x) exp(x) )
+
+ 
+Y<-aidss$CD4
+X<-model.matrix(CD4~obstime + drug + obstime:drug,data=aidss)
+Z<-model.matrix(CD4~1 + obstime,data=aidss)
+grouping<-as.numeric(as.factor(aidss$patient))
+
+xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
+
+fit.tmb<-glmmTMB(Y~X-1 + 
+                   (Z-1 | grouping), data = xdf,family=Gamma(link="log"),
+                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
+
+
+
+
+
+Ya<-c(Y,d2222$data$Y)
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(d2222$data$Z)))
+Za<-rbind(Z,d2222$data$Z)
+groupa<-c(grouping,max(grouping)+d2222$data$grouping)
+weights<-c(rep(1,length(Y)),d2222$data$nn)
+
+xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupa,weights=weights)
+
+ 
+fit_aug2<-glmmTMB(Y~-1+X+(-1+Z|grouping),data=xdfa,family=Gamma(link="log"), 
+                 dispformula = ~offset(log(weights)),
+                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)),
+                 start=list(beta=fit.tmb$sdr$par.fixed[1:4],betad=fit.tmb$sdr$par.fixed[5],theta=fit.tmb$sdr$par.fixed[6:8]))
+ 
+
+
+ #pen
+
+
+
+gamma_devTMB <- function(par){ 
+  gamma_dev_tmp <- fit.tmb$obj$fn
+  
+  
+  d11 <- exp(par[6])^2
+  d22<-exp(par[7])^2
+  rho<-par[8]/sqrt(1+par[8]^2)
+  d12<-rho*sqrt(d11*d22)
+  D<-matrix(c(d11,d12,d12,d22),ncol=2)
+  Dm<-solve(D)
+  pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
+  
+  gamma_dev_tmp(par) -pen # brez 2* !!!
+  
+  
+}
+
+gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE) 
+
+
+res.ml<-paste(
+  round(fit.tmb$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fit.tmb$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" ")
+
+res.pd<-paste(
+  round(fit_aug2$sdr$par.fixed,3),
+  paste("(",round(sqrt(diag(fit_aug2$sdr$cov.fixed)),3),")",sep="")
+  ,sep=" ")
+
+
+res.pen<-paste(
+  round(gamma_optim_TMB$par,3),
+  paste("(",round(sqrt(diag(solve(gamma_optim_TMB$hessian))),3),")",sep=""),sep=" ")
+
+res1<-cbind(res.ml,res.pd,res.pen)
+rownames(res1)<-c(paste("beta",0:3,sep=""),"betad",paste("theta",1:3,sep=""))
+colnames(res1)<-c("ML","pseudo","penalty")
+
+ #ML
+m<-fit.tmb$sdr$par.fixed[6:8]
+vr<-fit.tmb$sdr$cov.fixed[6:8,6:8]
+names(m)<-rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+tmb_sig<-c(
+  my_s_delta(d1_tmb,digits=3),
+  my_s_delta(d2_tmb,digits=3),
+  my_s_delta(d3_tmb,digits=3))
+
+
+#AUG
+m<-fit_aug2$sdr$par.fixed[6:8]
+vr<-fit_aug2$sdr$cov.fixed[6:8,6:8]
+names(m)<-rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_aug_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_aug_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_aug_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+tmb_aug_sig<-c(
+  my_s_delta(d1_aug_tmb,digits=3),
+  my_s_delta(d2_aug_tmb,digits=3),
+  my_s_delta(d3_aug_tmb,digits=3))
+
+
+#PEN
+m<-gamma_optim_TMB$par[6:8]
+vr<-solve(gamma_optim_TMB$hessian)[6:8,6:8]
+names(m)<-rownames(vr)<-colnames(vr)<-paste0("theta",1:3)
+
+d1_pen_tmb<-deltaMethod(m,g.="exp(theta1)^2",vcov.=vr)
+d2_pen_tmb<-deltaMethod(m,g.="exp(theta2)^2",vcov.=vr)
+d3_pen_tmb<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.=vr)
+
+
+tmb_pen_sig<-c(
+  my_s_delta(d1_pen_tmb,digits=3),
+  my_s_delta(d2_pen_tmb,digits=3),
+  my_s_delta(d3_pen_tmb,digits=3))
+
+res_sig<-cbind(tmb_sig,tmb_aug_sig,tmb_pen_sig)
+
+
+result.psi<-rbind(res1,res_sig)
+rownames(result.psi)[9:11]<-paste0("Sigma",1:3)
+
+res1<-result.psi[,c(1,3,2)]
+ 
+#resa<-xtable(res1)
+resa<-xtable(res1[-c(6:8),])

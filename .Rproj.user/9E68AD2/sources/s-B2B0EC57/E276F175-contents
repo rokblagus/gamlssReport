@@ -1,0 +1,65 @@
+
+##real example
+
+(m1 <- glmer(cbind(incidence, size - incidence) ~ period + (as.numeric(period) | herd), family = binomial(link="probit"), data = cbpp))
+
+X<-model.matrix(~period,data=cbpp)
+Z<-model.matrix(~as.numeric(period),data=cbpp)
+grouping<-as.numeric(cbpp$herd)
+Y<-cbpp$incidence
+n<-cbpp$size
+
+
+xdf<-list(X=X,Z=Z,grouping=grouping,Y=Y,n=n)
+
+
+fittm<-glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping),data=xdf,family=binomial(link="probit"),control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B")))
+
+
+
+psi<-rbind(c(3,-.2),c(-.2,1))
+nu=7
+###data augmn
+pd<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun=function(x) 1/(1+exp(-x)))
+
+fitp<-glmmTMB(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=pd$data,family=binomial(link="logit"),control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B")))
+
+
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd$data$Z)))
+Za<-rbind(Z,pd$data$Z)
+groupinga<-c(grouping,max(grouping)+pd$data$grouping)
+Ya<-c(Y,pd$data$Y*pd$data$nn)
+na<-c(n,pd$data$nn)
+
+xdfa<-list(X=Xa,Z=Za,grouping=groupinga,Y=Ya,n=na)
+
+
+
+fit2 <- glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
+                
+                data=xdfa,  start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
+                
+                control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
+)
+
+
+
+
+##penalty
+
+bin_devTMB <- function(par) {
+  bin_dev_tmp <- fittm$obj$fn
+  d11 <- exp(par[5])^2
+  d22<-exp(par[6])^2
+  rho<-par[7]/sqrt(1+par[7]^2)
+  d12<-rho*sqrt(d11*d22)
+  D<-matrix(c(d11,d12,d12,d22),ncol=2)
+  Dm<-solve(D)
+  pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
+  
+  bin_dev_tmp(par) -pen # brez 2* !!!
+}
+
+
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE) 
+

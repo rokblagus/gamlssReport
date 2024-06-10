@@ -1,0 +1,1910 @@
+gmm.fit0<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)
+
+zz=0
+
+for (i in unique(data$grouping)){
+  zz=zz+1
+ii<-  data$Z[data$grouping==i,]%*%matrix(as.numeric(ranef(gmm.fit0)[[1]]$grouping[zz,]),ncol=1)
+  if (zz==1) res<-c(ii) else res<-c(res,ii)
+}
+
+firth<-logistf(Y~-1+X+offset(res),data = data)
+firth2<-logistf(Y~-1+X,data = data)
+
+firth$hat.diag
+
+Wx<-diag(fitted(gmm.fit0)*(1-fitted(gmm.fit0)))
+
+H<-(Wx%^%(1/2))%*%data$X%*%solve(t(data$X)%*%Wx%*%data$X)%*%t(data$X)%*%(Wx%^%(1/2))
+plot(diag(H),firth$hat.diag) #seems very similar (although not exactly the same)
+
+
+plot(firth$predict,fitted(gmm.fit0)) #very similar (although not exactly the same)
+plot(firth2$predict,fitted(gmm.fit0)) #different, ie offset really makes a difference
+
+Wx<-diag(firth$predict*(1-firth$predict))
+
+H<-(Wx%^%(1/2))%*%data$X%*%solve(t(data$X)%*%Wx%*%data$X)%*%t(data$X)%*%(Wx%^%(1/2))
+plot(diag(H),firth$hat.diag)  #exactly the same, ie offset is not a part of X, but it adjust the probs so that they are very similar as obtained by glmm
+
+
+
+
+plot(expit(data$X%*%matrix(fixef(gmm.fit0)$cond,ncol=1)),fitted(gmm.fit0)) #to check that fitted gives the fitted including the RE
+
+##RE part needs to be a part of pis when calculating probs, the crucial thing then is to have correctly estimated blups.
+
+#not general! p<=5! see code for X!
+
+
+simZ<-function(n){
+  
+  cor.mat<-rbind(c(1,0.5,0.5,0,0),
+                 c(0.5,1,0,0.5,0),
+                 c(0.5,0,1,0,-0.3),
+                 c(0,0.5,0,1,0.5),
+                 c(0,0,-0.3,0.5,1))
+  X<-rmvnorm(n,sigma=cor.mat,method="chol")
+  Z1<-ifelse(X[,1]<(-1),1,0)
+  Z2<-ifelse(X[,2]<(-1),1,0)
+  Z3<-ifelse(X[,3]<0,1,0)
+  Z4<-ifelse(X[,4]>=0.5,1,0)+ifelse(X[,4]>=1.5,1,0)
+  Z5<-10*X[,5]+55
+  upl<-quantile(X[,5],probs=0.75)+3*(quantile(X[,5],probs=0.75)-quantile(X[,5],probs=0.25))
+  lll<-quantile(X[,5],probs=0.75)-3*(quantile(X[,5],probs=0.75)-quantile(X[,5],probs=0.25))
+  
+  upll<-upl*10+55
+  llll<-lll*10+55
+  Z5[Z5<llll]<-llll
+  Z5[Z5>upll]<-upll
+  
+  cbind(Z1,Z2,Z3,Z4,Z5)
+  #Z<-model.matrix(~Z1+Z2+Z3+factor(Z4)+Z5-1)
+  #Z
+}
+
+library(extraDistr)
+
+#not checked! gives very strange results!
+make.data.binder<-function(N,cluster.size,var.random.inter=0.4,var.random.slope=0.2,cov.re=0.2,b0=-1,betas=c(0.69,0.69,0.69,0.35,-0.035)){
+ p<-length(betas) 
+  sigma<-matrix(c(var.random.inter,cov.re,cov.re,var.random.slope),ncol=2)
+  formX<-formula(~Z1+Z2+Z3+factor(Z4)+Z5)
+  if (cluster.size=="small"){
+    lambda=5
+    a=1
+    b=10
+  }  
+  if (cluster.size=="moderate"){
+    lambda=10
+    a=1
+    b=20
+  } 
+  if (cluster.size=="large"){
+    lambda=20
+    a=1
+    b=40
+  } 
+  flg<-TRUE
+  while(flg==TRUE){
+    #generate data
+    
+    x<-matrix(NA,ncol=p,nrow=1)
+    y<-NA
+    id<-NA
+    pii<-trueB<-list()
+    for (i in 1:N){
+      n<-rtpois(1,lambda=lambda, a = a, b = b)
+      xi<-simZ(n)
+      xi[,1]<-xi[1,1]
+      xi[,2]<-xi[1,2]
+      xm<-cbind(1,xi)
+      
+      re<-rmvnorm(1, mean = rep(0, nrow(sigma)), sigma = sigma)
+     
+      
+      
+      
+      betass<-c( b0,betas )
+      
+      
+      trueBi<-xm[,c(1,4)]%*%matrix(re,ncol=1)
+      trueB[[i]]<-trueBi
+      id.i<-rep(i,each=n)
+      
+      mui<- xm%*%matrix(betass,ncol=1) +trueBi
+      pi<-1/(1+exp(-mui))
+      pii[[i]]<-pi
+      y.i<-rbinom(n,size=1,prob=pi)
+      
+      x<-rbind(x,xi)
+      y<-c(y,y.i)
+      id<-c(id,id.i)
+      
+    }
+    xdf<-as.data.frame(x)
+    nm<-names(xdf)
+    if (sum(apply(as.matrix(xdf[-1,1:p],ncol=p,nrow=nrow(xdf)-1),2,sum)==0)==0) flg=FALSE else flg=TRUE
+  }
+  
+  
+  true.pi<-unlist(pii)
+  
+  xdf$y<-y
+  xdf$id<-id
+  
+  
+  xdf<-xdf[-1,]
+  
+  data <- list(Y = xdf$y,
+               X = model.matrix(
+                 formX, data = xdf),
+               Z = cbind(
+                 rep(1, nrow(xdf)),
+                 xdf$Z3),
+               M = rep(1, nrow(xdf)),
+               grouping = xdf$id,
+               trueB=unlist(trueB),
+               truepi=true.pi)
+  
+  data
+  
+  
+} 
+
+make.data<-function(n,N,p,beta,b0,x.type="bernouli1",x.prob=0.3,var.random.inter=0.4,var.random.slope=0.2,cov.re=0.2){
+sigma<-matrix(c(var.random.inter,cov.re,cov.re,var.random.slope),ncol=2)
+
+if (p==1) formX<-formula(~V1)
+if (p==2) formX<-formula(~V1+V2)
+if (p==3) formX<-formula(~V1+V2+V3)
+if (p==4) formX<-formula(~V1+V2+V3+V4)
+if (p==5) formX<-formula(~V1+V2+V3+V4+V5)
+
+flg<-TRUE
+while(flg==TRUE){
+  #generate data
+  
+  x<-matrix(NA,ncol=p,nrow=1)
+  y<-NA
+  id<-NA
+  pii<-trueB<-list()
+  for (i in 1:N){
+    
+    if (x.type=="norm") xi<-matrix(rnorm(n*p),ncol=p)
+    if (x.type=="bernouli1") xi<-matrix(rbinom(n*p,prob=x.prob,size=1),ncol=p)
+    if (x.type=="bernouli2") xi<-matrix(rep(rbinom(p,prob=x.prob,size=1),each=n),ncol=p)
+    
+    xm<-cbind(1,xi)
+    
+    re<-rmvnorm(1, mean = rep(0, nrow(sigma)), sigma = sigma)
+    random.intercept<-re[1]
+    bi<-re[2]
+    
+    
+    
+    betas<-c(random.intercept+b0,beta[1]+bi,beta[-1])
+    
+    
+    trueB[[i]]<-xm[,1:2]%*%matrix(re,ncol=1)
+    
+    id.i<-rep(i,each=n)
+    
+    mui<- xm%*%matrix(betas,ncol=1) 
+    pi<-1/(1+exp(-mui))
+    pii[[i]]<-pi
+    y.i<-rbinom(n,size=1,prob=pi)
+    
+    x<-rbind(x,xi)
+    y<-c(y,y.i)
+    id<-c(id,id.i)
+    
+  }
+  xdf<-as.data.frame(x)
+  nm<-names(xdf)
+  if (sum(apply(as.matrix(xdf[-1,1:p],ncol=p,nrow=nrow(xdf)-1),2,sum)==0)==0) flg=FALSE else flg=TRUE
+}
+
+#start analysis
+true.pi<-unlist(pii)
+
+xdf$y<-y
+xdf$id<-id
+
+
+xdf<-xdf[-1,]
+
+data <- list(Y = xdf$y,
+             X = model.matrix(
+               formX, data = xdf),
+             Z = cbind(
+               rep(1, nrow(xdf)),
+               xdf$V1),
+             M = rep(1, nrow(xdf)),
+             grouping = xdf$id,
+             trueB=unlist(trueB),
+             truepi=true.pi)
+
+data
+}
+
+make.data.int<-function(n,N,p,beta,b0,x.type="bernouli1",x.prob=0.3,var.random.inter=0.4){
+   
+  if (p==1) formX<-formula(~V1)
+  if (p==2) formX<-formula(~V1+V2)
+  if (p==3) formX<-formula(~V1+V2+V3)
+  if (p==4) formX<-formula(~V1+V2+V3+V4)
+  if (p==5) formX<-formula(~V1+V2+V3+V4+V5)
+  
+  flg<-TRUE
+  while(flg==TRUE){
+    #generate data
+    
+    x<-matrix(NA,ncol=p,nrow=1)
+    y<-NA
+    id<-NA
+    pii<-trueB<-list()
+    for (i in 1:N){
+      
+      if (x.type=="norm") xi<-matrix(rnorm(n*p),ncol=p)
+      if (x.type=="bernouli1") xi<-matrix(rbinom(n*p,prob=x.prob,size=1),ncol=p)
+      if (x.type=="bernouli2") xi<-matrix(rep(rbinom(p,prob=x.prob,size=1),each=n),ncol=p)
+      
+      xm<-cbind(1,xi)
+      
+      re<-rnorm(1, mean = 0, sd = sqrt(var.random.inter))
+      random.intercept<-re[1]
+       
+      
+      
+      
+      betas<-c(random.intercept+b0,beta[1] ,beta[-1])
+      
+      
+      trueB[[i]]<-xm[,1]%*%matrix(re,ncol=1)
+      
+      id.i<-rep(i,each=n)
+      
+      mui<- xm%*%matrix(betas,ncol=1) 
+      pi<-1/(1+exp(-mui))
+      pii[[i]]<-pi
+      y.i<-rbinom(n,size=1,prob=pi)
+      
+      x<-rbind(x,xi)
+      y<-c(y,y.i)
+      id<-c(id,id.i)
+      
+    }
+    xdf<-as.data.frame(x)
+    nm<-names(xdf)
+    if (sum(apply(as.matrix(xdf[-1,1:p],ncol=p,nrow=nrow(xdf)-1),2,sum)==0)==0) flg=FALSE else flg=TRUE
+  }
+  
+  #start analysis
+  true.pi<-unlist(pii)
+  
+  xdf$y<-y
+  xdf$id<-id
+  
+  
+  xdf<-xdf[-1,]
+  
+  data <- list(Y = xdf$y,
+               X = model.matrix(
+                 formX, data = xdf),
+               Z = cbind(
+                 rep(1, nrow(xdf)) ),
+               M = rep(1, nrow(xdf)),
+               grouping = xdf$id,
+               trueB=unlist(trueB),
+               truepi=true.pi)
+  
+  data
+}
+
+#as what I had for X but with no penalty for Z, but cheating with true REs
+
+
+georg.glmm.general.cheat<-function(data,tol=1e-6,maxIter=25,useFirth=TRUE,use.pen.sigma=TRUE,pen.sigma.ridge=FALSE,s=10,pen=1){
+  
+  
+  xdf=data
+  N<-length(unique(xdf$grouping))
+  ##here the iterative procedure starts:
+  
+  firth<-logistf(Y~-1+X+offset(trueB),data=xdf,pl=FALSE,firth=TRUE)
+  hi<-firth$hat.diag
+  ##add pseudoobsr:
+
+    X=rbind(xdf$X,xdf$X,xdf$X)
+    Z=rbind(xdf$Z,matrix(0,ncol=ncol(xdf$Z),nrow=nrow(xdf$Z)*2))
+    Y=c(xdf$Y,xdf$Y,1-xdf$Y)
+    M=c(xdf$M,hi/2,hi/2)
+    grouping=rep(xdf$grouping,3)
+    
+    
+    pseudo<-list(X=X,
+                 Z=Z,
+                 Y=Y,
+                 M=M,
+                 grouping=grouping
+    )
+    
+    
+    #gmm.fit0<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)  
+    gmm.fit0<-glmer(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+  
+    
+  
+  gmm.fit0     
+  
+}
+
+#if I use the same trick for Z, the amount of shrinkage for var is too large
+#which in turn means we bias betas towards zero (since we wrongly assume no RE, ie we only fit glm)
+#if we rep Zs (georg idea) it is better, but can we do better?
+#if we don't inlcude penalty on Zs the convergence is poor so some penalty on Zs is needed
+
+
+georg.glmm.general.iter.hiz<-function(data,tol=1e-6,maxIter=25,version=1,facti=0.5,plot.coef.path=FALSE){
+  
+  
+  xdf=data
+  N<-length(unique(xdf$grouping))
+  ##here the iterative procedure starts:
+  
+  firth<-logistf(Y~-1+X,data=xdf,pl=FALSE,firth=TRUE)
+  hi<-firth$hat.diag
+  
+  firthz<-logistf(Y~-1+Z,data=xdf,pl=FALSE,firth=TRUE)
+  hiz<-firthz$hat.diag
+      ##add pseudoobsr:
+    cfs<-list()
+   
+    
+    flag=FALSE
+    
+    nIter<-0
+    while(flag==FALSE&nIter<maxIter){
+      nIter<-nIter+1
+      
+      ##add pseudoobsr:
+      
+      if (nIter==1) {
+       
+        X=rbind(xdf$X,xdf$X,xdf$X,matrix(0,ncol=ncol(xdf$X),nrow=nrow(xdf$Z)*2))
+        if (version==1){
+        Z=rbind(xdf$Z,matrix(0,ncol=ncol(xdf$Z),nrow=nrow(xdf$Z)*2),xdf$Z,xdf$Z)
+        } else {
+          Z=rbind(xdf$Z,xdf$Z,xdf$Z,xdf$Z,xdf$Z)
+      }
+        Y=c(xdf$Y,xdf$Y,1-xdf$Y,xdf$Y,1-xdf$Y)
+        M=c(xdf$M,hi/2,hi/2,hiz/2*facti,hiz/2*facti)
+        grouping=c(xdf$grouping,
+                   xdf$grouping+max(xdf$grouping),xdf$grouping+2*max(xdf$grouping),
+                   xdf$grouping+3*max(xdf$grouping),xdf$grouping+4*max(xdf$grouping))
+        #grouping=rep(xdf$grouping,3)
+        
+        
+      pseudo<-list(X=X,
+                   Z=Z,
+                   Y=Y,
+                   M=M,
+                   grouping=grouping
+      )
+      
+      
+    
+      gmm.fit0<-glmer(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+      
+      } else {
+        gmm.fit0<-gmm.fit
+        }
+      
+      cfs[[nIter]]<-fixef(gmm.fit0)
+      xdf$lp<-predict(gmm.fit0,random.only=TRUE)[1:nrow(xdf$X)]
+      firth<-logistf(Y~-1+X+offset(lp),data=xdf,pl=FALSE,firth=TRUE)
+      hi<-firth$hat.diag
+      
+      predi<-xdf$X%*%matrix(fixef(gmm.fit0),ncol=1)
+      xdf$lpz<-predi
+      firthz<-logistf(Y~-1+X+offset(lpz),data=xdf,pl=FALSE,firth=TRUE)
+      hiz<-firthz$hat.diag
+      
+      
+      M=c(xdf$M,hi/2,hi/2,hiz/2*facti,hiz/2*facti)
+      
+      
+      pseudo<-list(X=X,
+                   Z=Z,
+                   Y=Y,
+                   M=M,
+                   grouping=grouping
+      )
+      
+      
+      
+      gmm.fit<-glmer(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+      
+      tol2<-max(c(max(abs(fixef(gmm.fit0)-fixef(gmm.fit))),
+                  max(abs(ranef(gmm.fit0)$grouping[1:N,]-ranef(gmm.fit)$grouping[1:N,])) ))
+      
+      if (tol2<tol) flag=TRUE
+}
+    
+    if (plot.coef.path==TRUE){
+      pp<-length(cfs[[1]])
+      ce<-matrix(unlist(cfs),byrow=TRUE,ncol=pp) 
+      par(mfrow=c(1,pp))
+      for (i in 1:pp){
+        plot(ce[,i],type="l")
+      }
+      
+    }
+      #gmm.fit0<-glmmTMB(M~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"), se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)  
+      
+      
+      
+      gmm.fit     
+   
+}
+
+##ridge penalty on b
+
+###this does not work...
+make_pseudo_data_rand_offset<-function(var.int,var.slope,rho){
+  xx<-getxy(rho)
+  #cov=rho*sqrt(var.int*var.re)
+  
+  
+  #true=true.s
+  #var.int=true[1]
+  #var.slope=var.re
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  
+  if (rho<0){
+    n1=xx[1]  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=xx[2]
+  } else {
+    n1=1 #this gives negative cors!
+    n2=xx[2]
+    n01=xx[1]  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  
+  
+  #M=1/nnn #this fucks up everything! why??
+  pi<-YY/nnn
+  ofseti<--log(pi/(1-pi)   )
+  YY<-rep(0.5,length(YY))+runif(length(YY),min=1e-4,max=(1e-4)*2) #it does sth, but it is not ok
+  nnn<-rep(1,length(YY))
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ,ofseti=ofseti)#,M=M ) #weights don't do anything
+  #fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),weights = M,data=data0,family=binomial)
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  fit0<-glmer(Y~-1+(-1+Z+offset(ofseti)|grouping),data=data0,family=binomial) #error response is contant...
+  
+  est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
+  
+  list(data=data0,fit=fit0,vcv.re=est.vcv,n=xx)
+  
+}
+
+
+
+
+
+
+
+
+#this makes no sense, it actually forces the variances to zero, which makes sense after you understand things
+georg.glmm.general.iter.ridge<-function(data,tol=1e-6,maxIter=25,s=10,prior.sigma,version=1,plot.coef.path=FALSE){
+  
+  cc=2*s**2-3/2
+  pseudoZ<-prior.sigma%^%(-1/2)/s
+  
+  xdf=data
+  N<-length(unique(xdf$grouping))
+  ##here the iterative procedure starts:
+  
+  firth<-logistf(Y~-1+X,data=xdf,pl=FALSE,firth=TRUE)
+  hi<-firth$hat.diag
+  
+  ##add pseudoobsr:
+  cfs<-list()
+  
+  
+  flag=FALSE
+  
+  nIter<-0
+  while(flag==FALSE&nIter<maxIter){
+    nIter<-nIter+1
+    
+    ##add pseudoobsr:
+    
+    if (nIter==1) {
+      
+      X=rbind(xdf$X,xdf$X,xdf$X,matrix(0,ncol=ncol(xdf$X),nrow=nrow(pseudoZ)))
+      if (version==1){
+      Z=rbind(xdf$Z,matrix(0,ncol=ncol(xdf$Z),nrow=nrow(xdf$Z)*2),pseudoZ)
+      } else {
+        Z=rbind(xdf$Z,xdf$Z,xdf$Z,pseudoZ)
+      }
+      Y=c(xdf$Y,xdf$Y,1-xdf$Y,rep(cc,each=ncol(prior.sigma)))
+      M=c(xdf$M,hi/2,hi/2, rep(1,ncol(prior.sigma)))
+      grouping=c(xdf$grouping,
+                 xdf$grouping+max(xdf$grouping),xdf$grouping+2*max(xdf$grouping),
+                rep(max(xdf$grouping+2*max(xdf$grouping))+1,nrow(pseudoZ)) )
+      #grouping=rep(xdf$grouping,3)
+      nn=c(rep(1,nrow(xdf$X)*3),rep(2*cc,each=ncol(prior.sigma))  )
+      
+      pseudo<-list(X=X,
+                   Z=Z,
+                   Y=Y,
+                   M=M,
+                   grouping=grouping,
+                   nn=nn
+      )
+      
+      
+      
+      gmm.fit0<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+      
+    } else {
+      gmm.fit0<-gmm.fit
+    }
+    
+    cfs[[nIter]]<-fixef(gmm.fit0)
+    xdf$lp<-predict(gmm.fit0,random.only=TRUE)[1:nrow(xdf$X)]
+    firth<-logistf(Y~-1+X+offset(lp),data=xdf,pl=FALSE,firth=TRUE)
+    hi<-firth$hat.diag
+    
+    M=c(xdf$M,hi/2,hi/2,rep(1,ncol(prior.sigma)))
+    
+    
+    pseudo<-list(X=X,
+                 Z=Z,
+                 Y=Y,
+                 M=M,
+                 grouping=grouping,
+                 nn=nn
+    )
+    
+    
+    
+    gmm.fit<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+    
+    tol2<-max(c(max(abs(fixef(gmm.fit0)-fixef(gmm.fit))),
+                max(abs(ranef(gmm.fit0)$grouping[1:N,]-ranef(gmm.fit)$grouping[1:N,])) ))
+    
+    if (tol2<tol) flag=TRUE
+  }
+  
+  if (plot.coef.path==TRUE){
+    pp<-length(cfs[[1]])
+    ce<-matrix(unlist(cfs),byrow=TRUE,ncol=pp) 
+    par(mfrow=c(1,pp))
+    for (i in 1:pp){
+      plot(ce[,i],type="l")
+    }
+    
+  }
+  #gmm.fit0<-glmmTMB(M~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"), se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)  
+  
+  
+  
+  gmm.fit     
+  
+}
+
+
+##### this trick shows how to implement a prior on the random intercept, obvious issue you need to guess the prior
+Nps<-1
+n<-100000
+varb<-30
+YY<-rep(c(expit(sqrt(varb)),1-expit(sqrt(varb))),each=Nps)*n
+nnn<-rep(n,2)
+
+idi<-rep(1:2,each=1)
+
+ data0<-list(Y=YY,nn=nnn,grouping=idi)
+
+fit0<-glmer(cbind(Y,nn-Y)~1+(1|grouping),data=data0,family=binomial)
+B=500
+
+res<-res2<-matrix(NA,nrow=B,ncol=3)
+
+for (ii in 1:B){
+
+data<-make.data.int(20,20,1,c(2),-0.5,var.random.inter=varb)
+#data$Z<-matrix(1,nrow(data$X),1)
+fitc<-glmer(Y~-1+X+(-1+Z|grouping),data=data,family=binomial(link = "logit"))
+
+ 
+ X<-rbind(data$X,matrix(0,length(YY),ncol(data$X)))
+ 
+#data2$Z<-rbind(matrix(0,nrow(data$X),ncol(data$Z)),matrix(1,length(Y),ncol(data$Z))) #this only gives prior
+ Z<-rbind(data$Z,matrix(1,length(YY),ncol(data$Z))) #this is prior+data
+ 
+#data2$Z<-rbind(data$Z,matrix(0,length(Y),ncol(data$Z))) #this should be the same as if there is no prior, not the same with cbind option, but the same with Y option, why?
+ grouping<-c(data$grouping,idi+1000)
+ Y<-c(data$Y,YY)
+ nn<-c(rep(1,nrow(data$X)),nnn)
+ #H<-c(rep(1,nrow(data$X)),YY)
+ data2<-list(X=X,Y=Y,Z=Z,nn=nn,grouping=grouping)#,H=H)
+ 
+ #fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),weights=H,
+  #           data=data2,family=binomial(link = "logit")
+   #                       )
+ fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),
+              data=data2,family=binomial(link = "logit")
+ )
+ 
+
+ff.rr.o<-fixef(fitc)
+sigma.rr.o<-VarCorr(fitc)$grouping[1,1]
+res[ii,]<-c(ff.rr.o,sigma.rr.o)
+
+ff.rr.o2<-fixef(fitc2)
+sigma.rr.o2<-VarCorr(fitc2)$grouping[1,1]
+res2[ii,]<-c(ff.rr.o2,sigma.rr.o2)
+
+print(ii)
+
+
+}
+
+apply(res,2,mean,na.rm=TRUE)
+apply(res2,2,mean,na.rm=TRUE)
+
+apply(res,2,var,na.rm=TRUE)
+apply(res2,2,var,na.rm=TRUE)
+
+
+par(mfrow=c(1,2))
+boxplot(cbind(res[,1:2],res2[,1:2]))
+abline(h=c(-0.5,2))
+boxplot(cbind(res[,3],res2[,3]))
+abline(h=varb)
+
+#implement a prior on int and slope (independent) via a similar trick
+
+Nps<-1
+n<-100000
+varb<-3
+vars<-1
+YY<-rep(c(expit(sqrt(varb)),1-expit(sqrt(varb))),each=Nps)*n
+YY2<-rep(c(expit(sqrt(vars)),1-expit(sqrt(vars))),each=Nps)*n
+YY<-c(YY,YY2)
+nnn<-rep(n,4)
+
+idi<-rep(1:4,each=1)
+ZZ=cbind(rep(1,2),0)
+ZZ2=cbind(0,rep(1,2))
+ZZ<-rbind(ZZ,ZZ2) 
+data0<-list(Y=YY,nn=nnn,grouping=idi,Z1=ZZ[,1],Z2=ZZ[,2])
+
+fit0<-glmer(cbind(Y,nn-Y)~1+(-1+Z1|grouping)+(-1+Z2|grouping),data=data0,family=binomial)
+#fuck me, this works!, what about correlated RES?
+B=250
+
+res<-res2<-matrix(NA,nrow=B,ncol=2+2)
+
+for (ii in 1:B){
+  
+  
+data<-make.data(3,15,1,c(2),-0.5,var.random.inter=varb,var.random.slope = vars,cov.re = 0)
+#data$Z<-matrix(1,nrow(data$X),1)
+fitc<-glmer(Y~-1+X+(-1+Z[,1]|grouping)+(-1+Z[,2]|grouping),data=data,family=binomial(link = "logit"))
+
+X<-rbind(data$X,matrix(0,length(YY),ncol(data$X)))
+
+#data2$Z<-rbind(matrix(0,nrow(data$X),ncol(data$Z)),matrix(1,length(Y),ncol(data$Z))) #this only gives prior
+Z<-rbind(data$Z,ZZ) #this is prior+data
+
+#data2$Z<-rbind(data$Z,matrix(0,length(Y),ncol(data$Z))) #this should be the same as if there is no prior, not the same with cbind option, but the same with Y option, why?
+grouping<-c(data$grouping,idi+1000)
+Y<-c(data$Y,YY)
+nn<-c(rep(1,nrow(data$X)),nnn)
+#H<-c(rep(1,nrow(data$X)),YY)
+data2<-list(X=X,Y=Y,Z=Z,nn=nn,grouping=grouping)#,H=H)
+
+#fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),weights=H,
+#           data=data2,family=binomial(link = "logit")
+#                       )
+fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z[,1]|grouping)+(-1+Z[,2]|grouping),
+             data=data2,family=binomial(link = "logit")
+)
+
+ff.rr.o<-fixef(fitc)
+sigma.rr.o<-c(VarCorr(fitc)$grouping[1,1],VarCorr(fitc)$grouping.1[1,1])
+res[ii,]<-c(ff.rr.o,sigma.rr.o)
+
+ff.rr.o2<-fixef(fitc2)
+sigma.rr.o2<-c(VarCorr(fitc2)$grouping[1,1],VarCorr(fitc2)$grouping.1[1,1])
+res2[ii,]<-c(ff.rr.o2,sigma.rr.o2)
+
+print(ii)
+}
+
+
+apply(res,2,mean,na.rm=TRUE)
+apply(res2,2,mean,na.rm=TRUE)
+
+apply(res,2,var,na.rm=TRUE)
+apply(res2,2,var,na.rm=TRUE)
+
+
+par(mfrow=c(1,2))
+boxplot(cbind(res[,1:2],res2[,1:2]))
+abline(h=c(-0.5,2))
+boxplot(cbind(res[,c(3,4)],res2[,c(3,4)]))
+abline(h=c(varb,vars))
+
+#try for cov, not yet...
+
+#data1<-list(Y=c(YY,YY2),nn=nnn,grouping=idi,Z=ZZ)
+
+#obviously we would need 2 more clusters (as expected)
+#fit00<-glmer(cbind(Y,nn-Y)~1+(-1+Z|grouping),data=data1,family=binomial)
+
+var.int=5
+var.slope=3
+
+pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+
+Nps<-1
+n<-100000
+
+YY<-c(pi0,pi1,1-pi0,1-pi1)*n #I guess this forces cor=1
+YY<-c(pi0,1-pi1,1-pi0,pi1)*n #I guess this forces cor=-1?true for corr but vars are not ok, makes sense after you draw a picture!
+nnn<-rep(n,4)
+
+idi<-rep(1:2,each=2)
+ZZ<-cbind(1,c(0,1,0,1))
+
+#this now works, but cov is weird. could we fix also cov? 
+data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ)
+fit0<-glmer(cbind(Y,nn-Y)~1+(-1+Z|grouping),data=data0,family=binomial)
+VarCorr(fit0)$grouping
+
+#it seems this is another way to implement indep prior (albeit a messier one)
+fit0<-glmer(cbind(Y,nn-Y)~1+(-1+Z[,1]|grouping)+(-1+Z[,2]|grouping),data=data0,family=binomial)
+
+
+####try, this only reduces the prior variance, so no good
+var.int=4
+var.slope=12
+#cov.re=1
+#sigma<-matrix(c(var.int,cov.re,cov.re,var.slope),ncol=2)
+#simga05<-sigma%^%(1/2)
+#pi0=exp(simga05[1,1])/(1+exp(simga05[1,1]))
+#pi1=exp(simga05[2,2])/((1-pi0)/pi0+exp(simga05[2,2]))
+pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+
+Nps<-1
+n<-10000
+
+YY<-c(pi0,pi1,1-pi0,1-pi1,pi0,1-pi11,1-pi0,pi11)*n #yes! this forces rho to zero, yiha!!
+nnn<-rep(n,8)
+
+idi<-rep(1:4,each=2)
+ZZ<-cbind(1,rep(c(0,1),4))
+M=rep(100,length(YY))
+#this now works for cov=0. could we fix also cov? 
+
+
+data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ,M=M) #weights don't do anything
+fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial,weights=M)
+VarCorr(fit0)$grouping[1:2,1:2]
+
+#what do we get if we make one more cluster?
+
+var.int=4
+var.slope=12
+#cov.re=1
+#sigma<-matrix(c(var.int,cov.re,cov.re,var.slope),ncol=2)
+#simga05<-sigma%^%(1/2)
+#pi0=exp(simga05[1,1])/(1+exp(simga05[1,1]))
+#pi1=exp(simga05[2,2])/((1-pi0)/pi0+exp(simga05[2,2]))
+pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+
+Nps<-1
+n<-10000
+n1=1 #this gives negative cors!
+n2=1
+n01=10 #this gives positive cors!
+n02=1
+
+#neg cov, my guess it that cov increases if we add more of the same
+#yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+#this below will only give negative cors..
+YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+nnn<-rep(n,length(YY))
+
+idi<-rep(1:(length(YY)/2),each=2)
+ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+ #this now works for cov=0. could we fix also cov? 
+
+
+data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+VarCorr(fit0)$grouping[1:2,1:2] #vau it seems this gives cov! (without distroying vars)
+
+#make a function
+
+my.opt<-function(par,true){
+  
+  var.int=true[1]
+  var.slope=true[4]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (true[2]<0){
+  n1=floor(par[1]) #this gives negative cors!
+  n2=floor(par[2])
+  n01=1 #this gives positive cors!
+  n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=floor(par[1]) #this gives positive cors!
+    n02=floor(par[2])  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  max(abs(c(VarCorr(fit0)$grouping[1:2,1:2])-true))
+  
+  
+  
+}
+
+#this is ok, it cannot get close to rho=1, but we get to 0.99 which is ok, why would you want more?
+my.opt1<-function(par,true){
+  
+  var.int=true[1]
+  var.slope=true[4]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (true[2]<0){
+    n1=floor(par)  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=floor(par)  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  max(abs(c(VarCorr(fit0)$grouping[1:2,1:2])-true))
+  
+  
+  
+}
+ranger<-1:200
+rr<-rep(NA,length(ranger))
+ii=0
+for (x in ranger){
+  ii=ii+1
+#rr[ii]<-my.opt(c(1,x),true=c(0.8,1,1,1.2))
+rr[ii]<-my.opt1(x,true=true.s)
+}
+plot(rr)
+min(rr)
+opt<-optim(1,my.opt1,true=c(4,0,0,12),method="Brent",lower=0,upper=1000) #lower needs to be zero so that it also works with indep REs
+opt
+#opt<-optim(c(1,1),my.opt,true=c(4,5,5,12),lower=0,upper=100)
+#my.opt does not work, my.opt1 kinda works, I guess this is the best we can get
+par=2
+
+#try with sim
+
+var.int=10
+var.re=5
+rho=0.2
+cov=rho*sqrt(var.int*var.re)
+
+true.s<-c(var.int,rep(cov,2),var.re)
+
+opt<-optim(1,my.opt1,true=true.s,method="Brent",lower=0,upper=1000) #lower needs to be zero so that it also works with indep REs
+true=true.s
+par=2
+var.int=true[1]
+var.slope=true[4]
+pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+
+Nps<-1
+n<-10000
+
+if (true[2]<0){
+  n1=floor(par)  #this gives negative cors!
+  n2=1
+  n01=1 #this gives positive cors!
+  n02=1
+} else {
+  n1=1 #this gives negative cors!
+  n2=1
+  n01=floor(par)  #this gives positive cors!
+  n02=1  
+}
+
+#neg cov, my guess it that cov increases if we add more of the same
+#yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+#this below will only give negative cors..
+YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+nnn<-rep(n,length(YY))
+
+idi<-rep(1:(length(YY)/2),each=2)
+ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+#this now works for cov=0. could we fix also cov? 
+
+
+data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+
+VarCorr(fit0)$grouping[1:2,1:2]
+
+#needs my.opt1
+
+# use_optim if TRUE n is found using optim, otherwise it uses grid search on the specified grid
+#show_plot if TRUE it shows the plot for grid search
+
+
+make_pseudo_data<-function(var.int,var.re,rho,use_optim=FALSE,grid=NULL,show_plot=FALSE){
+   
+  cov=rho*sqrt(var.int*var.re)
+  
+  true.s<-c(var.int,rep(cov,2),var.re)
+  if (use_optim==TRUE){
+  opt<-optim(1,my.opt1,true=true.s,method="Brent",lower=0,upper=1000) #lower needs to be zero so that it also works with indep REs
+  
+  par=opt$par
+  } else {
+    if (is.null(grid)) grid<-1:200
+    rr<-rep(NA,length(grid))
+    ii=0
+    for (x in grid){
+      ii=ii+1
+      rr[ii]<-my.opt1(x,true=true.s)
+    }
+    par=grid[which.min(rr)]
+    if (show_plot==TRUE) plot(grid,rr,type="l",xlab="n",ylab="crit",main="")
+  }
+  true=true.s
+  var.int=true[1]
+  var.slope=true[4]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (true[2]<0){
+    n1=floor(par)  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=floor(par)  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  
+  est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
+  
+  list(data=data0,fit=fit0,vcv.re=est.vcv)
+  
+}
+
+
+B=250
+
+res<-res2<-matrix(NA,nrow=B,ncol=2+4)
+
+for (ii in 1:B){
+  
+  
+  data<-make.data(40,50,1,c(2),-0.5,
+                  var.random.inter=true[1],
+                  var.random.slope = true[4],cov.re = true[2])
+  #data$Z<-matrix(1,nrow(data$X),1)
+  fitc<-glmer(Y~-1+X+(-1+Z|grouping),data=data,family=binomial(link = "logit"))
+  
+  X<-rbind(data$X,matrix(0,length(YY),ncol(data$X)))
+  
+  #data2$Z<-rbind(matrix(0,nrow(data$X),ncol(data$Z)),matrix(1,length(Y),ncol(data$Z))) #this only gives prior
+  Z<-rbind(data$Z,ZZ) #this is prior+data
+  
+  #data2$Z<-rbind(data$Z,matrix(0,length(Y),ncol(data$Z))) #this should be the same as if there is no prior, not the same with cbind option, but the same with Y option, why?
+  grouping<-c(data$grouping,idi+1000)
+  Y<-c(data$Y,YY)
+  nn<-c(rep(1,nrow(data$X)),nnn)
+  #H<-c(rep(1,nrow(data$X)),YY)
+  data2<-list(X=X,Y=Y,Z=Z,nn=nn,grouping=grouping)#,H=H)
+  
+  #fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),weights=H,
+  #           data=data2,family=binomial(link = "logit")
+  #                       )
+  fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),
+               data=data2,family=binomial(link = "logit")
+  )
+  
+  ff.rr.o<-fixef(fitc)
+  sigma.rr.o<-c(VarCorr(fitc)$grouping[1:2,1:2])
+  res[ii,]<-c(ff.rr.o,sigma.rr.o)
+  
+  ff.rr.o2<-fixef(fitc2)
+  sigma.rr.o2<-c(VarCorr(fitc2)$grouping[1:2,1:2])
+  res2[ii,]<-c(ff.rr.o2,sigma.rr.o2)
+  
+  print(ii)
+}
+
+apply(res,2,mean,na.rm=TRUE)
+apply(res2,2,mean,na.rm=TRUE)
+
+apply(res,2,var,na.rm=TRUE)
+apply(res2,2,var,na.rm=TRUE)
+
+
+par(mfrow=c(1,2))
+boxplot(cbind(res[,1:2],res2[,1:2]),outline =FALSE)
+abline(h=c(-0.5,2))
+boxplot(cbind(res[,c(3,4,6)],res2[,c(3,4,6)]),outline =FALSE)
+abline(h=c(true[-2]))
+
+
+par(mfrow=c(1,2))
+boxplot(cbind(res[,1:2],res2[,1:2]) )
+abline(h=c(-0.5,2))
+boxplot(cbind(res[,c(3,4,6)],res2[,c(3,4,6)]) )
+abline(h=c(true[-2]))
+
+
+####older
+#write a function that will search for pis (could maybe help us for cov neq 0)
+
+
+#aux function needed to make pseudo data for random int and random slope that are correlated.not needed any more
+
+my.opt1<-function(par,true){
+  
+  var.int=true[1]
+  var.slope=true[4]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (true[2]<0){
+    n1=floor(par)  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=floor(par)  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  max(abs(c(VarCorr(fit0)$grouping[1:2,1:2])-true))
+  
+  
+  
+}
+
+
+
+
+
+#creates pseudo data needed to implement the prior on correlated random int and random slope
+
+#needs my.opt1
+
+
+
+make_pseudo_data_rand<-function(var.int,var.slope,rho){
+  
+  #cov=rho*sqrt(var.int*var.re)
+  
+  
+  #true=true.s
+  #var.int=true[1]
+  #var.slope=var.re
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (rho<0){
+    n1=round((1-3*rho)/(1+rho),0)  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=round((3*rho+1)/(1-rho)  ,0  )  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  
+  est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
+  
+  list(data=data0,fit=fit0,vcv.re=est.vcv)
+  
+}
+
+
+###we don't need to optimize n, we can simply calculate, see the other function
+make_pseudo_data_rand<-function(var.int,var.re,rho,use_optim=FALSE,grid=NULL,show_plot=FALSE){
+  
+  cov=rho*sqrt(var.int*var.re)
+  
+  true.s<-c(var.int,rep(cov,2),var.re)
+  if (use_optim==TRUE){
+    opt<-optim(1,my.opt1,true=true.s,method="Brent",lower=0,upper=1000) #lower needs to be zero so that it also works with indep REs
+    
+    par=opt$par
+  } else {
+    if (is.null(grid)) grid<-1:200
+    rr<-rep(NA,length(grid))
+    ii=0
+    for (x in grid){
+      ii=ii+1
+      rr[ii]<-my.opt1(x,true=true.s)
+    }
+    par=grid[which.min(rr)]
+    if (show_plot==TRUE) plot(grid,rr,type="l",xlab="n",ylab="crit",main="")
+  }
+  true=true.s
+  var.int=true[1]
+  var.slope=true[4]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  
+  Nps<-1
+  n<-10000
+  
+  if (true[2]<0){
+    n1=floor(par)  #this gives negative cors!
+    n2=1
+    n01=1 #this gives positive cors!
+    n02=1
+  } else {
+    n1=1 #this gives negative cors!
+    n2=1
+    n01=floor(par)  #this gives positive cors!
+    n02=1  
+  }
+  
+  #neg cov, my guess it that cov increases if we add more of the same
+  #yes, each cluster that we add (either above zero or below zero will give a different cov, this would mean we only have 2 params to optimize)
+  #this below will only give negative cors..
+  YY<-c(rep(c(pi0,pi1),n01),rep(c(1-pi0,1-pi1),n02),rep(c(pi0,1-pi11),n1),rep(c(1-pi0,pi11),n2))*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,length(YY))
+  
+  idi<-rep(1:(length(YY)/2),each=2)
+  ZZ<-cbind(1,rep(c(0,1),(length(YY)/2)))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ ) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  
+  est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
+  
+  list(data=data0,fit=fit0,vcv.re=est.vcv)
+  
+}
+
+
+myopt<-function(par,true){
+  var.int=par[1]
+  var.slope=par[2]
+  cv=par[3]
+  pi0=exp(sqrt(var.int))/(1+exp(sqrt(var.int)))
+  pi1=exp(sqrt(var.slope))/((1-pi0)/pi0+exp(sqrt(var.slope)))
+  pi11=exp(sqrt(var.slope))/((pi0)/(1-pi0)+exp(sqrt(var.slope)))
+  piii<-1/(1+exp(-cv))
+  Nps<-1
+  n<-10000
+  
+  YY<-c(pi0,pi1,1-pi0,1-pi1,pi0,1-pi11,1-pi0,piii)*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,8)
+  
+  idi<-rep(1:4,each=2)
+  ZZ<-cbind(1,rep(c(0,1),4))
+  M=rep(100,length(YY))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ,M=M) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial,weights=M)
+  max(abs(c(VarCorr(fit0)$grouping[1:2,1:2])-true))
+  
+}
+
+op<-optim(c(4,12,5),myopt,true=c(4,5,5,12) )
+op #okish for cov close to zero, bad for large rho
+
+#this has way too many parameters!
+myopt<-function(par,true){
+  
+  pi01=expit(par[1])
+  pi11=expit(par[2])
+  pi02=expit(par[3])
+  
+  pi12=expit(par[4])
+  pi03=expit(par[5])
+  pi13=expit(par[6])
+  pi04=expit(par[7])
+  pi14=expit(par[8])
+  Nps<-1
+  n<-10000
+  
+  YY<-c(pi01,pi11,pi02,pi12,pi03,pi13,pi04,pi14)*n #yes! this forces rho to zero, yiha!!
+  nnn<-rep(n,8)
+  
+  idi<-rep(1:4,each=2)
+  ZZ<-cbind(1,rep(c(0,1),4))
+  M=rep(100,length(YY))
+  #this now works for cov=0. could we fix also cov? 
+  
+  
+  data0<-list(Y=YY,nn=nnn,grouping=idi,Z=ZZ,M=M) #weights don't do anything
+  fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial,weights=M)
+  max(abs(c(VarCorr(fit0)$grouping[1:2,1:2])-true))
+  
+}
+
+op<-optim(rep(c(1,0.5,-1,-0.5),2),myopt,true=c(4,5,5,12) )
+par=op$par
+
+
+
+
+confint(fit0) #?? does the width depend on nn, not that much(!), but the point estimate does and is far away for small n(!)...
+#this also works
+fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z[,1]|grouping)+(-1+Z[,2]|grouping),data=data0,family=binomial)
+VarCorr(fit0)$grouping
+VarCorr(fit0)$grouping.1
+
+B=250
+
+res<-res2<-matrix(NA,nrow=B,ncol=2+4)
+
+for (ii in 1:B){
+  
+  
+  data<-make.data(5,50,1,c(2),-0.5,var.random.inter=var.int,var.random.slope = var.slope,cov.re = 0)
+  #data$Z<-matrix(1,nrow(data$X),1)
+  fitc<-glmer(Y~-1+X+(-1+Z|grouping),data=data,family=binomial(link = "logit"))
+  
+  X<-rbind(data$X,matrix(0,length(YY),ncol(data$X)))
+  
+  #data2$Z<-rbind(matrix(0,nrow(data$X),ncol(data$Z)),matrix(1,length(Y),ncol(data$Z))) #this only gives prior
+  Z<-rbind(data$Z,ZZ) #this is prior+data
+  
+  #data2$Z<-rbind(data$Z,matrix(0,length(Y),ncol(data$Z))) #this should be the same as if there is no prior, not the same with cbind option, but the same with Y option, why?
+  grouping<-c(data$grouping,idi+1000)
+  Y<-c(data$Y,YY)
+  nn<-c(rep(1,nrow(data$X)),nnn)
+  #H<-c(rep(1,nrow(data$X)),YY)
+  data2<-list(X=X,Y=Y,Z=Z,nn=nn,grouping=grouping)#,H=H)
+  
+  #fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),weights=H,
+  #           data=data2,family=binomial(link = "logit")
+  #                       )
+  fitc2<-glmer(cbind(Y,nn-Y)~-1+X+(-1+Z|grouping),
+               data=data2,family=binomial(link = "logit")
+  )
+  
+  ff.rr.o<-fixef(fitc)
+  sigma.rr.o<-c(VarCorr(fitc)$grouping[1:2,1:2])
+  res[ii,]<-c(ff.rr.o,sigma.rr.o)
+  
+  ff.rr.o2<-fixef(fitc2)
+  sigma.rr.o2<-c(VarCorr(fitc2)$grouping[1:2,1:2])
+  res2[ii,]<-c(ff.rr.o2,sigma.rr.o2)
+  
+  print(ii)
+}
+
+
+apply(res,2,mean,na.rm=TRUE)
+apply(res2,2,mean,na.rm=TRUE)
+
+apply(res,2,var,na.rm=TRUE)
+apply(res2,2,var,na.rm=TRUE)
+
+
+par(mfrow=c(1,2))
+boxplot(cbind(res[,1:2],res2[,1:2]),outline =FALSE)
+abline(h=c(-0.5,2))
+boxplot(cbind(res[,c(3,4,6)],res2[,c(3,4,6)]),outline =FALSE)
+abline(h=c(var.int,var.slope,0))
+
+
+
+
+
+#what about some rho?
+
+
+
+#####
+
+
+ get.re<-function(fit,N,grouping=NULL,Z=NULL){
+   if (class(fit)=="glmerMod"){
+     lp<-predict(fit,random.only=TRUE)[1:N]
+     
+   } else {
+     blups<-as.matrix(ranef(fit)$cond[[1]]) 
+     lp<-rep(NA,nrow(Z))
+     for (kk in 1:nrow(blups)){
+       lp[  grouping ==rownames(blups)[kk]  ]<-Z[grouping ==rownames(blups)[kk],]%*%matrix(as.numeric(blups[kk,]),ncol=1)
+     }
+     
+   }
+   lp
+ }
+ "%^%" <- function(x, n)   with(eigen(x), vectors %*% (values^n * t(vectors)))
+ expit<-function(x) 1/(1+exp(-x))
+
+ 
+ #data - list with elements Y, X, Z, grouping, M
+ #penZ - TRUE sets Z for pseudo for X to Z,Z (Georg), FALSE sets them to 0 (Rok)
+ #fit.TMB TRUE uses glmmTMB, FALSE uses glmer
+ #REML - only applies if fit.TMB=TRUE, if TRUE uses REML for variance components, if FALSE uses ML
+ #plot.coef.path - plots coefficient pats for each fixef parameter
+ #fit.frth - if TRUE it fits firth with offset to get his, otherwise it calculates them from the hat matrix (using the formula for GLM), where the probabilities are based on fixed and REs.
+ 
+ georg.glmm.general.iter<-function(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=FALSE,REML=FALSE,plot.coef.path=FALSE,fit.frth=TRUE){
+  
+  
+  xdf=data
+  N<-length(unique(xdf$grouping))
+  ##here the iterative procedure starts:
+  
+  if (fit.frth==TRUE){
+  firth<-logistf(Y~-1+X,data=xdf,pl=FALSE,firth=TRUE)
+  hi<-firth$hat.diag
+  } else {
+    pi0<-rep(0.5,nrow(xdf$X))
+    W<-diag(pi0*(1-pi0))
+    H<-(W%^%(1/2))%*%xdf$X%*%solve(t(xdf$X)%*%W%*%xdf$X)%*%t(xdf$X)%*%(W%^%(1/2))
+    hi<-diag(H)
+  }
+  
+  ##add pseudoobsr:
+  cfs<-list()
+  
+  
+  flag=FALSE
+  
+  nIter<-0
+  while(flag==FALSE&nIter<maxIter){
+    nIter<-nIter+1
+    
+    ##add pseudoobsr:
+    
+    if (nIter==1) {
+      
+      X=rbind(xdf$X,xdf$X,xdf$X)
+      if (penZ==FALSE){
+      Z=rbind(xdf$Z,matrix(0,ncol=ncol(xdf$Z),nrow=nrow(xdf$Z)*2)) #no penalty on Z
+      } else {
+      Z=rbind(xdf$Z,xdf$Z,xdf$Z) #georg
+      }
+      Y=c(xdf$Y,xdf$Y,1-xdf$Y)
+      M=c(xdf$M,hi/2,hi/2)
+      grouping=c(xdf$grouping,
+                 xdf$grouping+max(xdf$grouping),xdf$grouping+2*max(xdf$grouping))
+      #grouping=rep(xdf$grouping,3) #old version, the new makes more sense (although the res are similar)
+      
+      
+      pseudo<-list(X=X,
+                   Z=Z,
+                   Y=Y,
+                   M=M,
+                   grouping=grouping
+      )
+      
+      
+      if (fit.TMB==FALSE){
+      gmm.fit0<-glmer(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+      } else {
+        gmm.fit0<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = REML) 
+      }
+    } else {
+      gmm.fit0<-gmm.fit
+    }
+    if (fit.TMB==FALSE){
+    cfs[[nIter]]<-fixef(gmm.fit0)
+    } else {
+      cfs[[nIter]]<-fixef(gmm.fit0)$cond
+    }
+    #xdf$lp<-predict(gmm.fit0,random.only=TRUE)[1:nrow(xdf$X)]
+    xdf$lp<-get.re(gmm.fit0,nrow(xdf$X),xdf$grouping,xdf$Z)
+    
+    if (fit.frth==TRUE){
+    firth<-logistf(Y~-1+X+offset(lp),data=xdf,pl=FALSE,firth=TRUE)
+    hi<-firth$hat.diag
+    } else {
+      if (fit.TMB==FALSE){
+        pi0<-predict(gmm.fit0)[1:nrow(xdf$X)]
+      } else {
+      pi0<-predict(gmm.fit0,newdata=xdf)
+      }
+      pi0<-expit(pi0)
+      W<-diag(pi0*(1-pi0))
+      H<-(W%^%(1/2))%*%xdf$X%*%solve(t(xdf$X)%*%W%*%xdf$X)%*%t(xdf$X)%*%(W%^%(1/2))
+      hi<-diag(H)
+    }
+    
+    
+    M=c(xdf$M,hi/2,hi/2)
+    
+    
+    pseudo<-list(X=X,
+                 Z=Z,
+                 Y=Y,
+                 M=M,
+                 grouping=grouping
+    )
+    
+    
+    if (fit.TMB==FALSE){
+    gmm.fit<-glmer(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M )    
+    tol2<-max(c(max(abs(fixef(gmm.fit0)-fixef(gmm.fit))),
+                max(abs(ranef(gmm.fit0)$grouping[1:N,]-ranef(gmm.fit)$grouping[1:N,])) ))
+    
+    
+    } else {
+      gmm.fit<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = pseudo, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = REML) 
+    
+      tol2<-max(c(max(abs(fixef(gmm.fit0)$cond-fixef(gmm.fit)$cond)),
+                  max(abs(ranef(gmm.fit0)[[1]]$grouping[1:N,]-ranef(gmm.fit)[[1]]$grouping[1:N,])) ))
+    
+      }
+    
+    
+    if (tol2<tol) flag=TRUE
+  }
+  
+  if (fit.TMB==FALSE){
+    cfs[[nIter+1]]<-fixef(gmm.fit)
+  } else {
+    cfs[[nIter+1]]<-fixef(gmm.fit)$cond
+  }
+  
+  if (plot.coef.path==TRUE){
+    pp<-length(cfs[[1]])
+  ce<-matrix(unlist(cfs),byrow=TRUE,ncol=pp) 
+  par(mfrow=c(1,pp))
+  for (i in 1:pp){
+  plot(ce[,i],type="l")
+  }
+   
+  }
+  
+  
+  gmm.fit     
+  
+}
+
+##dif versions
+B<-100
+plt=FALSE
+resh6<-resh1<-resh2<-resh3<-resh4<-resh5<-matrix(NA,ncol=3+4,nrow=B)
+
+for (ii in 1:B){
+  true.sigma<-matrix(c(2,2,2,5),ncol=2)
+  data<-make.data(2,100,3,c(4,2,0),-2,var.random.inter=2,var.random.slope=5,cov.re=2)
+  
+  fit1<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=FALSE,REML=FALSE,plot.coef.path=plt,fit.frth=TRUE)
+  fit2<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=TRUE,REML=FALSE,plot.coef.path=plt)
+  fit3<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=TRUE,REML=TRUE,plot.coef.path=plt)
+  
+  fit4<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=FALSE,REML=FALSE,plot.coef.path=plt)
+  fit5<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=TRUE,REML=FALSE,plot.coef.path=plt)
+  fit6<-georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=TRUE,REML=TRUE,plot.coef.path=plt)
+  
+  fitc<-glmer(Y~-1+X+(-1+Z|grouping),data=data,family=binomial(link = "logit"))
+  fitc2<-glmer(Y~-1+X+(-1+Z|grouping)+offset(trueB),data=data,family=binomial(link = "logit"))
+  
+  fith<-georg.glmm.general.iter.hiz(data,tol=1e-6,maxIter=25,version=1,facti=1)
+  fith2<-georg.glmm.general.iter.hiz(data,tol=1e-6,maxIter=25,version=2,facti=1)
+  
+  fitr<-georg.glmm.general.iter.ridge(data,tol=1e-6,maxIter=25,s=10,prior.sigma=true.sigma,version=1,plot.coef.path=TRUE)
+  fitr2<-georg.glmm.general.iter.ridge(data,tol=1e-6,maxIter=25,s=10,prior.sigma=true.sigma,version=2)
+  fitr2<-georg.glmm.general.iter.ridge(data,tol=1e-6,maxIter=25,s=10,prior.sigma=matrix(c(10,0,0,10),ncol=2),version=1,plot.coef.path=TRUE)
+  
+  sigma.rr.o<-try(matrix(summary(fit2)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fit2)$cond
+  
+  resh2[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  sigma.rr.o<-try(matrix(summary(fit3)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fit3)$cond
+  
+  resh3[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  sigma.rr.o<-try(matrix(summary(fit5)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fit5)$cond
+  
+  resh5[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  sigma.rr.o<-try(matrix(summary(fit6)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fit6)$cond
+  
+  resh6[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  
+  ff.rr.o<-fixef(fit1)
+  sigma.rr.o<-VarCorr(fit1)$grouping[1:2,1:2]
+  
+  resh1[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  ff.rr.o<-fixef(fit4)
+  sigma.rr.o<-VarCorr(fit4)$grouping[1:2,1:2]
+  
+  resh4[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  print(ii)
+  
+} 
+apply(resh1,2,mean,na.rm=TRUE) #Georg, glmer
+apply(resh2,2,mean,na.rm=TRUE) #Georg, TMB, FALSE
+apply(resh3,2,mean,na.rm=TRUE) #Georg, TMB, TRUE
+
+apply(resh4,2,mean,na.rm=TRUE) #Rok, glmer
+apply(resh5,2,mean,na.rm=TRUE) #Rok, TMB, FALSE
+apply(resh6,2,mean,na.rm=TRUE) #Rok, TMB, TRUE
+par(mfrow=c(1,2))
+boxplot(cbind(resh1[,1:3],resh2[,1:3],resh3[,1:3],
+              resh4[,1:3],resh5[,1:3],resh6[,1:3]))
+abline(h=c(-1,4,2))
+
+boxplot(cbind(resh1[,c(4,5,7)],resh2[,c(4,5,7)],resh3[,c(4,5,7)],
+              resh4[,c(4,5,7)],resh5[,c(4,5,7)],resh6[,c(4,5,7)]))
+abline(h=c(1,2,10))
+
+mysum<-function(x,true){
+  b<-apply(x,2,mean,na.rm=TRUE)-true
+  v<-apply(x,2,var,na.rm=TRUE)
+  m<-b^2+v
+  res<-cbind(b,v,m)
+  colnames(res)<-c("b","v","m")
+  res
+}
+
+mysum(resh2,c(-1,4,2,1,2,2,10))
+mysum(resh5,c(-1,4,2,1,2,2,10))
+
+
+#########
+B<-100
+ressi<-resi<-ress<-res<-resrs<-resr<-resg<-resg2<-matrix(NA,ncol=3+4,nrow=B)
+res2<-matrix(NA,ncol=3,nrow=B)
+res3<-matrix(NA,ncol=3,nrow=B)
+for (ii in 1:B){
+data<-make.data(10,30,2,c(4,2),-1,var.random.inter=1,var.random.slope=10,cov.re=2)
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=FALSE,REML=FALSE,plot.coef.path=TRUE)
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=TRUE,REML=FALSE,plot.coef.path=TRUE)
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=TRUE,fit.TMB=TRUE,REML=TRUE,plot.coef.path=TRUE)
+
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=FALSE,REML=FALSE,plot.coef.path=TRUE)
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=TRUE,REML=FALSE,plot.coef.path=TRUE)
+georg.glmm.general.iter(data,tol=1e-6,maxIter=25,penZ=FALSE,fit.TMB=TRUE,REML=TRUE,plot.coef.path=TRUE)
+
+
+
+fit<-georg.glmm.general.iter(data,penZ=TRUE)
+fit2<-georg.glmm.general.iter(data,penZ=FALSE)
+fit3<-georg.glmm.general.iter.hiz(data,version=1)
+fit4<-georg.glmm.general.iter.hiz(data,version=2)
+fitr<-georg.glmm.general.iter.ridge(data,prior.sigma=matrix(c(1,2,2,10),ncol=2),version=1)
+fitr1<-georg.glmm.general.iter.ridge(data,prior.sigma=matrix(c(1,2,2,10),ncol=2),version=2)
+
+fitf<-logistf(Y~-1+X+offset(trueB),data=data,pl=FALSE,firth=TRUE)
+fitf2<-logistf(Y~-1+X+offset(trueB),data=data,pl=FALSE,firth=FALSE)
+fitg<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)  
+fitg2<-glmer(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"))  
+#note that TMB and glmer give very different results! TMB shrinks towards 0 in comparisson with glmer, which explains our results!
+
+res2[ii,]<-fitf$coef
+res3[ii,]<-fitf2$coef
+#sigma.rr.o<-matrix(summary(fit)$varcor$cond$grouping[1:4],ncol=2)
+#ff.rr.o<-fixef(fit)$cond
+ff.rr.o<-fixef(fit3)
+sigma.rr.o<-VarCorr(fit3)$grouping[1:2,1:2]
+
+resi[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+ff.rr.o<-fixef(fit4)
+sigma.rr.o<-VarCorr(fit4)$grouping[1:2,1:2]
+
+ressi[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+
+ff.rr.o<-fixef(fit)
+sigma.rr.o<-VarCorr(fit)$grouping[1:2,1:2]
+
+res[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+ff.rr.o<-fixef(fit2)
+sigma.rr.o<-VarCorr(fit2)$grouping[1:2,1:2]
+
+ress[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+
+ff.rr.o<-fixef(fitr)
+sigma.rr.o<-VarCorr(fitr)$grouping[1:2,1:2]
+
+resr[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+ff.rr.o<-fixef(fitr1)
+sigma.rr.o<-VarCorr(fitr1)$grouping[1:2,1:2]
+
+resrs[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+
+
+sigma.rr.o<-try(matrix(summary(fitg)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+ff.rr.o<-fixef(fitg)$cond
+
+resg[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+
+sigma.rr.o<-VarCorr(fitg2)$grouping[1:2,1:2]
+ff.rr.o<-fixef(fitg2)
+resg2[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+
+
+
+print(ii)
+}
+
+apply(res,2,mean,na.rm=TRUE)#Georg
+apply(ress,2,mean,na.rm=TRUE)#no pen Z
+
+boxplot(cbind(res[,1:3],resi[,1:3],resr[,1:3]))
+abline(h=c(-1,4,2))
+boxplot(cbind(res[,c(4,5,7)],resi[,c(4,5,7)],resr[,c(4,5,7)]))
+abline(h=c(1,10,2))
+boxplot(cbind(res[,1:3],ress[,1:3],res2[,1:3],res3[,1:3]),outline=FALSE)
+abline(h=c(-1,4,2))
+boxplot(cbind(res[,c(4,5,7)],ress[,c(4,5,7)]),outline=FALSE)
+abline(h=c(1,10,2))
+
+apply(resi,2,mean,na.rm=TRUE)#hiz 1: no pen Z
+apply(ressi,2,mean,na.rm=TRUE)#hiz 2: pen Z
+
+
+apply(resr,2,mean,na.rm=TRUE)#ridge 1: no pen Z
+apply(resrs,2,mean,na.rm=TRUE)#ridge 2: pen Z
+
+apply(resg,2,mean,na.rm=TRUE)#glmmTBM
+apply(resg2,2,mean,na.rm=TRUE)#glmer
+apply(res2,2,mean,na.rm=TRUE)#frth
+apply(res3,2,mean,na.rm=TRUE)#ML
+par(mfrow=c(1,1))
+boxplot(cbind(resg[,1:3],resg2[,1:3],res[,1:3],res2,res3))
+abline(h=c(-1,4,2))
+
+boxplot(cbind(resi[,1:3],ressi[,1:3],res[,1:3],ress[,1:3],resr[,1:3],resrs[,1:3],res2,res3))
+abline(h=c(-1,4,2))
+
+
+boxplot(cbind(resg[,c(4,5,7)],resg2[,c(4,5,7)],res[,c(4,5,7)]))
+abline(h=c(1,10,2))
+
+
+boxplot(cbind(res[,c(4,5,7)],ress[,c(4,5,7)],resr[,c(4,5,7)],resrs[,c(4,5,7)]))
+abline(h=c(1,10,2))
+
+boxplot(cbind(resi[,c(4,5,7)],ressi[,c(4,5,7)],res[,c(4,5,7)],ress[,c(4,5,7)],resr[,c(4,5,7)],resrs[,c(4,5,7)]))
+abline(h=c(1,10,2))
+
+
+#I dont see what Tina is seeing, I see that if we cheat with Firth we have bias towards zero, the same with iterative (starting from truth with Firth)
+#this is since she is using glmer which gives very different results than TMB!
+
+
+
+##only one meth
+
+B<-100
+resena<-resena1<-matrix(NA,ncol=3+4,nrow=B)
+ 
+for (ii in 1:B){
+  data<-make.data(5,20,2,c(4,2),-1,var.random.inter=1,var.random.slope=10,cov.re=2)
+  fit3<-georg.glmm.general.iter.hiz(data,version=1,facti=1)
+  fit4<-georg.glmm.general.iter.hiz(data,version=1,facti=0.5)
+
+  ff.rr.o<-fixef(fit3)
+  sigma.rr.o<-VarCorr(fit3)$grouping[1:2,1:2]
+  
+  resena[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  ff.rr.o<-fixef(fit4)
+  sigma.rr.o<-VarCorr(fit4)$grouping[1:2,1:2]
+  
+  resena1[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  print(ii)
+}
+
+apply(resena,2,mean,na.rm=TRUE)#hiz
+apply(resena1,2,mean,na.rm=TRUE)#hiz pen /2
+
+
+boxplot(cbind(resena[,1:3],resena1[,1:3]))
+abline(h=c(-1,4,2))
+
+
+boxplot(cbind(resena[,c(4,5,7)],resena1[,c(4,5,7)]))
+abline(h=c(1,10,2))
+
+
+
+####glmmTMB reml true vs false
+
+B<-100
+resg<-resg2<-resg3<-matrix(NA,ncol=3+4,nrow=B)
+
+for (ii in 1:B){
+  data<-make.data(20,100,2,c(4,2),-1,var.random.inter=1,var.random.slope=1,cov.re=.2)
+  fitg<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = TRUE)  
+  fitg2<-glmmTMB(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"),weights=M, se = TRUE, verbose = FALSE, doFit = TRUE, REML = FALSE)  
+  fitg3<-glmer(Y~-1+X+(-1+Z|grouping), data = data, family = binomial(link="logit"))  
+  
+  sigma.rr.o<-try(matrix(summary(fitg)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fitg)$cond
+  
+  resg[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  
+  sigma.rr.o<-try(matrix(summary(fitg2)$varcor$cond$grouping[1:4],ncol=2),silent = TRUE)
+  if (class(sigma.rr.o)=="try-error") sigma.rr.o<-rep(NA,4)
+  ff.rr.o<-fixef(fitg2)$cond
+  
+  resg2[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  sigma.rr.o<-VarCorr(fitg3)$grouping[1:2,1:2]
+  ff.rr.o<-fixef(fitg3)
+  resg3[ii,]<-c(ff.rr.o,c(sigma.rr.o))
+  
+  
+  
+  print(ii)
+}
+apply(resg,2,mean,na.rm=TRUE)#TMB REML
+apply(resg2,2,mean,na.rm=TRUE)#TMB ML
+apply(resg3,2,mean,na.rm=TRUE)#glmer
+
+par(mfrow=c(1,2))
+boxplot(cbind(resg[,1:3],resg2[,1:3],resg3[,1:3]),outline=FALSE)
+abline(h=c(-1,4,2))
+
+
+boxplot(cbind(resg[,c(4,5,7)],resg2[,c(4,5,7)],resg3[,c(4,5,7)]),outline=FALSE)
+abline(h=c(1,10,2))
+ 

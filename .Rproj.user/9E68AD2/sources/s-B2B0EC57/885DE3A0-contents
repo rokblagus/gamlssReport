@@ -8,7 +8,7 @@
 #'
 #'
 #' @param object an object of class \code{"gamlss"}.
-#' Note: only one smooth term per parameter is assumed (this smooth term had to be obtained using \code{pb()}).
+#' Note: multiple smooth terms per parameter are allowed (these smooth terms had to be obtained using \code{pb()}).
 #'
 #' @return An object of class \code{"gamlssReport"} for which \code{print}, \code{plot}, and \code{predict} functions are available.
 #' A list with components
@@ -17,14 +17,14 @@
 #' \item{\code{params}} {the names of the fitted parameters, i.e. mu, sigma, nu, tau}
 #' \item{\code{link}} {the link function for the model used for each parameter (a named list, with names corresponding to the parameters)}
 #' \item{\code{coef.beta}} {the linear coefficients for each parameter (a named list, with names corresponding to the parameters)}
-#' \item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to mdel non-linear association (a named list, with names corresponding to the parameters).}
+#' \item{\code{coef.spline}} {the penalized coefficients for the P-spline for each parameter where pb was used to model non-linear association (a named list, with names corresponding to the parameters).}
 #' \item{\code{knots.spline}} {the knots used to form the B-spline basis for the P-spline (a named list, with names corresponding to the parameters)}
-#' \item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
-#' \item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+#' \item{\code{range.x}} {the range of variable that was used for P-spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
+#' \item{\code{degree.spline}} {the degree of the spline (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 #' \item{\code{terms}} {details about the fixed effects and nonlinear term}
 #' \itemize{
 #' \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
-#' \item{\code{splinevar}} {name of the variable that was used for P-spline (a named list, with names corresponding to the parameters; NULL for parameters where pb was not used)}
+#' \item{\code{splinevar}} {names of the variables that were used for P-splines (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 #' }
 #' }
 #' @seealso \code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}
@@ -32,7 +32,7 @@
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -51,10 +51,10 @@ gamlssReport<-function(object){
   .family<-object$family
 
   params<-object$parameters
+	.terms<-extract_terms(object)
 
-  #.terms<-
   .link<-coef.beta<-coef.spline<-knots.spline<-range.x<-degree.spline<-vector("list",length=length(params))
-  #names(.terms)<-
+
   names(.link)<-names(coef.beta)<-names(coef.spline)<-names(knots.spline)<-names(range.x)<-names(degree.spline)<-params
 
 
@@ -62,18 +62,25 @@ gamlssReport<-function(object){
     #.terms[[i]]<-object[[paste(i,".terms",sep="")]]
     .link[[i]]<-object[[paste(i,".link",sep="")]]
     coef.beta[[i]]<-object[[paste(i,".coefficients",sep="")]]
-    coef.spline[[i]]<-object[[paste(i,".coefSmo",sep="")]][[1]]$coef
-    knots.spline[[i]]<-object[[paste(i,".coefSmo",sep="")]][[1]]$knots
-    if (!is.null(object[[paste(i,".coefSmo",sep="")]][[1]]$coef)) degree.spline[[i]]<-3 #not general!
 
-    if (!is.null(object[[paste(i,".coefSmo",sep="")]][[1]]$coef)) {
-      x<-object$mu.x[, attributes(object$mu.terms)$term.labels[grepl(object$mu.coefSmo[[1]]$name,attributes(object$mu.terms)$term.labels)] ]#this could be an issue!!
-      range.x[[i]]<- c(min(x),max(x))
-    }
+		if (!is.null(object[[paste(i,".coefSmo",sep="")]])){
+			coef.spline[[i]]<-knots.spline[[i]]<-degree.spline[[i]]<-range.x[[i]]<-
+					vector("list",length=length(object[[paste(i,".coefSmo",sep="")]]))
+			names(coef.spline[[i]])<-names(knots.spline[[i]])<-names(degree.spline[[i]])<-names(range.x[[i]])<-.terms$splinevar[[i]]
+			zz=0
+			for (ii in .terms$splinevar[[i]]){
+			zz=zz+1
+    				coef.spline[[i]][[ii]]<-object[[paste(i,".coefSmo",sep="")]][[zz]]$coef
+    				knots.spline[[i]][[ii]]<-object[[paste(i,".coefSmo",sep="")]][[zz]]$knots
+     				degree.spline[[i]][[ii]]<-3 #not general!
 
+    		      	x<-object$mu.x[, attributes(object$mu.terms)$term.labels[grepl(object$mu.coefSmo[[zz]]$name,attributes(object$mu.terms)$term.labels)] ]#this could be an issue!!
+      			range.x[[i]][[ii]]<- c(min(x),max(x))
+    				}
+			}
   }
 
-  .terms<-extract_terms(object)
+
 
   res<-list(family=.family,params=params,link=.link,
        coef.beta=coef.beta,
@@ -93,6 +100,7 @@ res
 #' @param digits_range a numeric value determining how many digits to display for range of x; defaults to \code{Inf} (no rounding).
 #' @param digits_coefs a numeric value determining how many digits to display for coefficients (fixed and penalized); defaults to \code{Inf} (no rounding).
 #' @param digits_knots a numeric value determining how many digits to display for the knots of the B-spline basis; defaults to \code{Inf} (no rounding).
+#' @param ... for extra arguments.
 #'
 #'
 #' @seealso \code{\link{gamlssReport}}, \code{\link{plot.gamlssReport}}
@@ -100,7 +108,7 @@ res
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -112,7 +120,7 @@ res
 #' m.mod<-gamlssReport(mod)
 #' print.gamlssReport(m.mod)
 
-print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=Inf){
+print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=Inf,...){
   txt1<-"********************************************************\n"
   txt2<-"--------------------------------------------------------\n"
 
@@ -128,19 +136,22 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 
     print(cfs)
 
-    if (!is.null(x$degree.spline[[i]])){
-      cat("\n",i," P-spline details: range of x ",paste("from ", round(x$range.x[[i]][1],digits_range)," to ",round(x$range.x[[i]][2],digits_range) ,sep=""),"; P-spline degree ",x$degree.spline[[i]],
-          "\n",i," P-spline knots and coefficients\n",sep="")
+    if (!is.null(x$terms$splinevar[[i]])){
+
+		splvar<-x$terms$splinevar[[i]]
+		for (ii in 1:length(splvar)){
+      		cat("\n",i," P-spline details for ",splvar[ii],": range of ",splvar[ii] ," ",paste("from ", round(x$range.x[[i]][[ii]][1],digits_range)," to ",round(x$range.x[[i]][[ii]][2],digits_range) ,sep=""),"; P-spline degree ",x$degree.spline[[i]][[ii]],
+          		"\n",i," P-spline knots and coefficients\n",sep="")
 
 
 
-      resi<-rbind(round(x$knots.spline[[i]],digits_knots),t(round(x$coef.spline[[i]],digits_coefs)))
-      rownames(resi)<-c("knots","coefs")
-      colnames(resi)<-paste("P-spline ",1:length(x$knots.spline[[i]]),sep="")
+      		resi<-rbind(round(x$knots.spline[[i]][[ii]],digits_knots),t(round(x$coef.spline[[i]][[ii]],digits_coefs)))
+      		rownames(resi)<-c("knots","coefs")
+      		colnames(resi)<-paste("P-spline ",1:length(x$knots.spline[[i]][[ii]]),sep="")
 
-      print(t(resi))
+      		print(t(resi))
 
-
+			}
     }
     cat("\n",txt2,sep="")
 
@@ -182,17 +193,19 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 #' m.aids1<-gamlssReport(aids1)
-#' plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),data.frame(qrt=c("reference")),xlab="x",ylab="score")
+#' plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),
+#'         data.frame(qrt=c("reference")),xlab="x",ylab="score")
 #'
 #' data(abdom)
 #' mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
 #' m.mod<-gamlssReport(mod)
-#' plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),xlab="x",ylab="score")
+#' plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),
+#'         xlab="x",ylab="score")
 
 
 plot.gamlssReport<-function(x,xname,range.x,centiles=c(0.1,0.5,0.9),newdata=NULL,return.object=FALSE,seq.length=1e5,...){
@@ -246,13 +259,14 @@ object<-x
 
 
 
-
+#add a note about the difference with gamlss::predict (they do interpolation spline we do B%*%b)
 
 #' @title Predict function
 #' @description Using the object generated by \code{\link{gamlssReport}}, it makes predictions (for the parameters), based on the new data
 #'
-#' @param x the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
+#' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
 #' @param newdata A dataframe containing all the variables (the names must match comepletely) needed to make predictions; see details for factors.
+#' @param ... for extra arguments.
 #'
 #' @return a list with components
 #' \itemize{
@@ -266,7 +280,7 @@ object<-x
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -275,10 +289,9 @@ object<-x
 #' predict.gamlssReport(m.aids1,newdata=new_data   )
 
 
-predict.gamlssReport<-function(x,newdata){
-object<-x
+predict.gamlssReport<-function(object,newdata,...){
   splinevar<-object$terms$splinevar
-  fixformula<-object$terms$fixformula
+  fixformula<-lapply(object$terms$fixformula,as.formula)
 
 
   params<-object$params
@@ -290,8 +303,13 @@ object<-x
 
     list.l[[i]]<-model.matrix(fixformula[[i]],newdata)
 
-    if (!is.null(object$degree.spline[[i]])){
-      list.nl[[i]]<-newdata[,splinevar[[i]]]
+    if (!is.null(object$terms$splinevar[[i]])){
+      list.nl[[i]]<-vector("list",length(object$terms$splinevar[[i]]))
+	names(list.nl[[i]])<-object$terms$splinevar[[i]]
+	for (ii in object$terms$splinevar[[i]]){
+	list.nl[[i]][[ii]]<-newdata[,ii]
+	}
+
     }
 
   }
@@ -319,7 +337,7 @@ object<-x
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -366,7 +384,7 @@ centile.gamlssReport<-function(object,y,newdata){
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
@@ -401,18 +419,19 @@ score.gamlssReport<-function(object,centile,newdata){
 #' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
 #' @param xnew.spline a named list containing a vector of values for the variable that is modeled as P-spline in \code{pb()} in a call to \code{gamlss}; needs to be of the same length as the number of parameters (\code{mu}, \code{sigma}, \code{nu}, \code{tau}), \code{NULL} if the parameter does not have a P-spline term.
 #' @param z.new a named list containing fixed effects design matrix for each parameter.
+#' z.new[[ii]] also needs to be a named list, with the names being equal to the names of the spline var
 #'
 #' @seealso \code{\link{predict.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
 #' @examples
 #' library(gamlss)
-#' library(splines)
+#'
 #'
 #' data(aids)
 #' aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 #' m.aids1<-gamlssReport(aids1)
-#' make_prediction(m.aids1,list("mu"=c(1,6,45)),
+#' make_prediction(m.aids1,list("mu"=list("x"=c(1,6,45))),
 #' list("mu"=rbind(c(1,1,0,0,0),c(1,6,1,0,0),c(1,45,1,0,0))))
 
 
@@ -429,15 +448,23 @@ make_prediction<-function(object,xnew.spline,z.new){
 
     cfi<-object$coef.beta[[i]]
 
-    if (!is.null(object$coef.spline[[i]])){
-      cfs<-object$coef.spline[[i]]
-      D<-make_spline(xnew.spline[[i]],object$knots.spline[[i]],object$degree.spline[[i]],object$range.x[[i]])
-    }
+    if (!is.null(object$terms$splinevar[[i]])){
+	cfs<-D<-vector("list",length=length(object$terms$splinevar[[i]]))
+	names(cfs)<-names(D)<-object$terms$splinevar[[i]]
+	for (ii in object$terms$splinevar[[i]] ){
+      cfs[[ii]]<-object$coef.spline[[i]][[ii]]
+      D[[ii]]<-make_spline(xnew.spline[[i]][[ii]],object$knots.spline[[i]][[ii]],object$degree.spline[[i]][[ii]],object$range.x[[i]][[ii]])
+	}#end for
+	} #end if
 
-    if (!is.null(object$coef.spline[[i]])){
-      lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)+D%*%cfs
+    if (!is.null(object$terms$splinevar[[i]])){
+	lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)
+	for (ii in object$terms$splinevar[[i]]){
+      lp[[i]]<-lp[[i]]+D[[ii]]%*%cfs[[ii]]
+	}
     } else {
-      lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)}
+      lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)
+    }
     fv[[i]]<-make_inverse(object$link[[i]],lp[[i]])
 
   }
@@ -498,22 +525,29 @@ extract_terms<-function(object){
       logic<-grepl("pb",nms)
 
       if (sum(logic)!=0) {
+		pbvar<-rep(NA,sum(logic))
+		vars<-nms
+		zz=0
+		for (jj in which(logic==TRUE)){
+			zz=zz+1
+        		spl<-strsplit(nms[jj],"pb\\(")[[1]][2]
 
-        spl<-strsplit(nms[logic],"pb\\(")[[1]][2]
+        		if (length(strsplit(spl,",")[[1]])==1) pbvar[zz]<-strsplit(spl,")")[[1]] else  pbvar[zz]<-strsplit( spl  ,",")[[1]][1]
+        		if (zz==sum(logic)) splinevar[[ii]]<-pbvar
+        		vars[jj]<-pbvar[zz]
+			}
 
-        if (length(strsplit(spl,",")[[1]])==1) pbvar<-strsplit(spl,")")[[1]] else  pbvar<-strsplit( spl  ,",")[[1]][1]
-        splinevar[[ii]]<-pbvar
-        vars<-nms
-        vars[logic]<-pbvar
-        fixf<-as.formula(paste("~",paste(vars,collapse="+"),sep=""))
+
+        #fixf<-as.formula(paste("~",paste(vars,collapse="+"),sep=""))
+        fixf<-paste("~",paste(vars,collapse="+"),sep="")
 
       } else {
-        fixf<-as.formula(paste("~",paste(nms,collapse="+"),sep=""))
-
+        #fixf<-as.formula(paste("~",paste(nms,collapse="+"),sep=""))
+        fixf<-paste("~",paste(nms,collapse="+"),sep="")
       }
 
+      #fixformula[[ii]]<-format(fixf) #it works if we change predict function also
       fixformula[[ii]]<-fixf
-
     }
   }
 
@@ -537,27 +571,51 @@ extract_terms<-function(object){
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
 #' @examples
-#' library(splines)
+#'
 #'
 #' make_spline(10,seq(from=10,to=20,by=1),3,c(9,21))
 
 
 
 make_spline<-function(newx,knots,degree,rng){ #this will only work if in pb they used uniformly set knots!
+##taken from pb gamlss
+  bbase <- function(x, xl, xr, ndx, deg) #note we dont allow quantile=TRUE option!
+  {
+    tpower <- function(x, t, p)
+      # Truncated p-th power function
+      (x - t) ^ p * (x > t)
+    # DS xl= min, xr=max, ndx= number of points within
+    # Construct B-spline basis
+    # if quantiles=TRUE use different bases
+    dx <- (xr - xl) / ndx # DS increment
+
+      knots <- seq(xl - deg * dx, xr + deg * dx, by = dx)
+      P <- outer(x, knots, tpower, deg)# calculate the power in the knots
+      n <- dim(P)[2]
+      D <- diff(diag(n), diff = deg + 1) / (gamma(deg + 1) * dx ^ deg) #
+      B <- (-1) ^ (deg + 1) * P %*% t(D)
+      attr(B, "knots") <- knots[-c(1:(deg-1), (n-(deg-2)):n)]
+      B
+
+  }
+##main f starts here
 
   xr<-rng[2]
   xl<-rng[1]
   ndx<-length(knots)-degree #number of knots-degree!
   xmax<-xr + 0.01 * (xr - xl)
   xmin<-xl - 0.01 * (xr - xl)
-  dt<-(xmax - xmin) / ndx
-  knots2<-seq(xmin - degree * dt, xmax + degree * dt, by = dt)
+  #dt<-(xmax - xmin) / ndx #use if splineDesign
+  #knots2<-seq(xmin - degree * dt, xmax + degree * dt, by = dt)
 
-  B<-splineDesign(knots = knots2, x = newx, ord = degree + 1, derivs = 0,outer.ok = TRUE)
+  #B<-splineDesign(knots = knots2, x = newx, ord = degree + 1, derivs = 0,outer.ok = TRUE)
+  B<-bbase(x=newx, xl=xmin, xr=xmax, ndx, deg=degree)
 
   B
 
 }
+
+
 
 
 
