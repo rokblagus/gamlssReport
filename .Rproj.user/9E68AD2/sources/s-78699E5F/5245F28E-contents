@@ -1,6 +1,5 @@
 exportPattern("^[[:alpha:]]+")
 import(gamlss)
-import(splines)
 importFrom("graphics", "legend", "lines")
 importFrom("stats", "as.formula", "model.matrix", "family")
 S3method(print, gamlssReport)

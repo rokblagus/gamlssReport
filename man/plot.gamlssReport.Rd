@@ -8,6 +8,7 @@
   x,
   xname,
   range.x,
+  x.transform = NULL,
   centiles = c(0.1, 0.5, 0.9),
   newdata = NULL,
   return.object = FALSE,
@@ -22,6 +23,8 @@
 Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.}
 
 \item{range.x}{a numeric vector of length 2 specifying the range of x for which to show the centiles.}
+
+\item{x.transform}{a function used to transform the x-axis, see details. Defaults to \code{NULL} which means that no transformation is used.}
 
 \item{centiles}{a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{c(0.1,0.5,0.9)}.}
 
@@ -44,6 +47,9 @@ if \code{return.object=TRUE} returns a list with components
 \description{
 Function \code{"plot.gamlssReport"} plots the centile curves for the object created by \code{\link{gamlssReport}}.
 }
+\details{
+When fitting the model, a power transformation of some variable, say xa=x^p, is used. The argument \code{x.transform} can be used to plot the centiles on the x scales (or any other if desired by the user) instead of the default (\code{x.transform=NULL}) scale. E.g. if  xa=x^(1/2) was used, specifying \code{x.transform=function(x) x^2} will plot the centiles on the x scale. Note that the \code{range.x} always refers to the variable that was used when fitting the model. See examples.
+}
 \examples{
 library(gamlss)
 
@@ -51,14 +57,31 @@ library(gamlss)
 data(aids)
 aids1<-gamlss(y~pb(x,df=4)+qrt,data=aids,family=PO)
 m.aids1<-gamlssReport(aids1)
-plot.gamlssReport(m.aids1,"x",c(1,45),seq(from=0.1,to=0.9,by=0.2),
-        data.frame(qrt=c("reference")),xlab="x",ylab="score")
+plot.gamlssReport(x=m.aids1,xname="x",range.x=c(1,45),
+   x.transform=NULL,centiles=seq(from=0.1,to=0.9,by=0.2),
+   newdata=data.frame(qrt=c("reference")),xlab="x",ylab="score")
+
+aids$nx<-sqrt(aids$x)
+aids2<-gamlss(y~pb(nx,df=4)+qrt,data=aids,family=PO)
+m.aids2<-gamlssReport(aids2)
+
+##plot on the fitted scale
+plot.gamlssReport(x=m.aids2,xname="nx",range.x=sqrt(c(1,45)),
+   x.transform=NULL,centiles=seq(from=0.1,to=0.9,by=0.2),
+   newdata=data.frame(qrt=c("reference")),xlab="nx",ylab="score")
+
+##plot on the original scale
+plot.gamlssReport(x=m.aids2,xname="nx",range.x=sqrt(c(1,45)),
+   x.transform=function(x) x**2,centiles=seq(from=0.1,to=0.9,by=0.2),
+   newdata=data.frame(qrt=c("reference")),xlab="x",ylab="score")
+
 
 data(abdom)
 mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
 m.mod<-gamlssReport(mod)
-plot.gamlssReport(m.mod,"x",c(13,40),seq(from=0.1,to=0.9,by=0.2),
-        xlab="x",ylab="score")
+plot.gamlssReport(x=m.mod,xname="x",range.x=c(13,40),
+   x.transform=NULL,centiles=seq(from=0.1,to=0.9,by=0.2),
+   xlab="x",ylab="score")
 }
 \seealso{
 \code{\link{gamlssReport}}, \code{\link{print.gamlssReport}}
