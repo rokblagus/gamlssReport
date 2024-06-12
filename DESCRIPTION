@@ -1,7 +1,7 @@
 Package: gamlssReport
 Type: Package
 Title: Prepare a sharable report for the models obtained by gamlss
-Version: 0.0.1
+Version: 0.0.3
 Authors@R: c(person(c("Rok","Blagus"),role=c("aut","cre"),email="rok.blagus@mf.uni-lj.si"))
 Author: Rok Blagus [aut, cre]
 Maintainer: Rok Blagus <rok.blagus@mf.uni-lj.si>

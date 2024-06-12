@@ -8,6 +8,7 @@
   x,
   xname,
   range.x,
+  gamlss.prediction = FALSE,
   x.transform = NULL,
   centiles = c(0.1, 0.5, 0.9),
   newdata = NULL,
@@ -23,6 +24,8 @@
 Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.}
 
 \item{range.x}{a numeric vector of length 2 specifying the range of x for which to show the centiles.}
+
+\item{gamlss.prediction}{logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.}
 
 \item{x.transform}{a function used to transform the x-axis, see details. Defaults to \code{NULL} which means that no transformation is used.}
 

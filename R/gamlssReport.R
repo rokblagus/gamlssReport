@@ -8,8 +8,10 @@
 #'
 #'
 #' @param object an object of class \code{"gamlss"}.
+#' @param extract.smooth logical indicating if the prediction for the smooth terms should be extracted (see details). Defaults to \code{FALSE}.
 #' Note: multiple smooth terms per parameter are allowed (these smooth terms had to be obtained using \code{pb()}).
 #'
+#' @details In the presence of additive terms there are two approaches for making interpolation (for the observed data points the two approaches return the same result): 1) interpolating the values of the B-spline basis for the new datapoints and using the estimated penalized coefficients to obtain predictions and 2) spline interpolation is performed using the estimated smooth terms for the observed datapoints. The latter approach (implemented in \code{\link{predict.gamlss}} using natural splines) requires that the fitted smooth terms and original datapoints for the variable(s) used to form the spline are saved. Setting \code{extract.smooth=TRUE} will save these and enable to exactly replicate the results of \code{\link{predict.gamlss}} when using \code{\link{predict.gamlssReport}}. Note that this will enable sharing the potentially sensible information!
 #' @return An object of class \code{"gamlssReport"} for which \code{print}, \code{plot}, and \code{predict} functions are available.
 #' A list with components
 #' \itemize{
@@ -26,6 +28,7 @@
 #' \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
 #' \item{\code{splinevar}} {names of the variables that were used for P-splines (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 #' }
+#' \item{\code{term.smooth} if \code{extract.smooth=TRUE} the fitted smooth terms for the observed datapoints}
 #' }
 #' @seealso \code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
@@ -46,7 +49,7 @@
 
 
 
-gamlssReport<-function(object){
+gamlssReport<-function(object,extract.smooth=FALSE){
 
   .family<-object$family
 
@@ -56,6 +59,7 @@ gamlssReport<-function(object){
   .link<-coef.beta<-coef.spline<-knots.spline<-range.x<-degree.spline<-vector("list",length=length(params))
 
   names(.link)<-names(coef.beta)<-names(coef.spline)<-names(knots.spline)<-names(range.x)<-names(degree.spline)<-params
+
 
 
   for (i in params){ #currently assuming only one pb term!, assuming there is no offset!
@@ -85,7 +89,38 @@ gamlssReport<-function(object){
   res<-list(family=.family,params=params,link=.link,
        coef.beta=coef.beta,
        coef.spline=coef.spline,knots.spline=knots.spline,range.x=range.x,degree.spline=degree.spline,terms=.terms)
-class(res)<-"gamlssReport"
+
+  fun.extract<-function(x){
+    what<-x$parameters
+    nms<-paste0(what,".s")
+    y<-x[nms]
+    names(y)<-what
+    nms2<-paste0(what,".coefSmo")
+    x<-lapply(x[nms2],function(x) lapply(x,function(x){
+      Call <- object$call;
+      data<-eval(Call$data);
+      data[,x$name]
+    }  ))
+    x<-lapply(x, function(x){
+      if (length(x)==0) m<-NULL else {
+      nsmooth<-length(x)
+      nrows<-length(x[[1]])
+      m<-matrix(NA,ncol=nsmooth,nrow=nrows)
+      for (ii in 1:length(x)){
+         m[,ii]<- x[[ii]]
+      }
+      }
+      m
+    })
+    names(x)<-what
+    list(x=x,y=y)
+  }
+  if (extract.smooth==TRUE){
+    .term.smooth<-fun.extract(object)
+    res$term.smooth<-.term.smooth
+  }
+
+  class(res)<-"gamlssReport"
 res
 }
 
@@ -176,6 +211,7 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 #' @param xname name (a character of length one) of the x variable used on the x-axis of the plot.
 #' Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.
 #' @param range.x a numeric vector of length 2 specifying the range of x for which to show the centiles.
+#' @param gamlss.prediction logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.
 #' @param x.transform a function used to transform the x-axis, see details. Defaults to \code{NULL} which means that no transformation is used.
 #' @param centiles a numeric vector with entries in (0,1) containing centiles to be shown. Defaults to \code{c(0.1,0.5,0.9)}.
 #' @param newdata the data.frame with a single row containig the values of the other variables that were used when fitting the model, set to \code{NULL} (default) if the model only has a single x. Needs to be nonnull if there are more xs. The names of the variables must exactly match the names used when fitting GAMLSS.
@@ -227,7 +263,7 @@ print.gamlssReport<-function(x,digits_range=Inf,digits_coefs=Inf,digits_knots=In
 #'    xlab="x",ylab="score")
 
 
-plot.gamlssReport<-function(x,xname,range.x,x.transform=NULL,centiles=c(0.1,0.5,0.9),newdata=NULL,return.object=FALSE,seq.length=1e5,...){
+plot.gamlssReport<-function(x,xname,range.x,gamlss.prediction=FALSE,x.transform=NULL,centiles=c(0.1,0.5,0.9),newdata=NULL,return.object=FALSE,seq.length=1e5,...){
 object<-x
   params<-object$params
 
@@ -251,7 +287,7 @@ object<-x
   ii=0
   for (cet in centiles){
     ii=ii+1
-    yf[[ii]]<-score.gamlssReport(object,cet,df)
+    yf[[ii]]<-score.gamlssReport(object,cet,df,gamlss.prediction)
   }
 
   if (return.object==FALSE){
@@ -281,14 +317,15 @@ object<-x
 
 
 
-#add a note about the difference with gamlss::predict (they do interpolation spline we do B%*%b)
 
 #' @title Predict function
 #' @description Using the object generated by \code{\link{gamlssReport}}, it makes predictions (for the parameters), based on the new data
 #'
 #' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
 #' @param newdata A dataframe containing all the variables (the names must match comepletely) needed to make predictions; see details for factors.
+#' @param gamlss.prediction logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.
 #' @param ... for extra arguments.
+#'
 #'
 #' @return a list with components
 #' \itemize{
@@ -309,9 +346,23 @@ object<-x
 #' m.aids1<-gamlssReport(aids1)
 #' new_data<-data.frame(x=c(10,15,2,4),qrt=c("reference",3,4,2) )
 #' predict.gamlssReport(m.aids1,newdata=new_data   )
+#'
+#' #multiple smooth terms
+#' set.seed(1)
+#' aids$z<-runif(nrow(aids))
+#' fit<-gamlss(y~pb(z,df=10)+qrt+pb(x,df=5),data=aids,family=PO)
+#' m<-gamlssReport(aids1)
+#' newm<-data.frame(qrt="3",z=0.25,x=2)
+#' predict(m,newm)$lp$mu
+#' #gamlss
+#' predict(fit,newdata=data.frame(qrt=3,z=0.25,x=2),what="mu",type="link")
+#'
+#' m2<-gamlssReport(aids1,extract.smooth=TRUE)
+#' predict(m2,newm,gamlss.prediction=TRUE)$lp$mu #the same as gamlss
 
 
-predict.gamlssReport<-function(object,newdata,...){
+
+predict.gamlssReport<-function(object,newdata,gamlss.prediction=FALSE,...){
   splinevar<-object$terms$splinevar
   fixformula<-lapply(object$terms$fixformula,as.formula)
 
@@ -336,7 +387,7 @@ predict.gamlssReport<-function(object,newdata,...){
 
   }
 
-  make_prediction(object,list.nl,list.l)
+  make_prediction(object,list.nl,list.l,gamlss.prediction)
 
 
 }
@@ -350,7 +401,7 @@ predict.gamlssReport<-function(object,newdata,...){
 #' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
 #' @param y the score for which to calculate the centile.
 #' @param newdata a dataframe containing the Xs for which to evaluate the centile.
-#'
+#' @param gamlss.prediction logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.
 #' @return a vector containing the centiles
 #' @details \code{y} can be a vector, in this case \code{newdata} need to be a dataframe with single row, or dataframe with the same no of rows as \code{y}; if \code{y} is a scalar \code{newdata} can have as many rows as desired; see examples.
 #'
@@ -369,9 +420,9 @@ predict.gamlssReport<-function(object,newdata,...){
 #' centile.gamlssReport(m.aids1,y=c(14,12),newdata=data.frame(x=c(4,5),qrt= c("reference",2) ))
 
 
-centile.gamlssReport<-function(object,y,newdata){
+centile.gamlssReport<-function(object,y,newdata,gamlss.prediction=FALSE){
 
-  pred<-predict.gamlssReport(object,newdata)$fv
+  pred<-predict.gamlssReport(object,newdata,gamlss.prediction)$fv
   family<-object$family[1]
 
   f<-paste("p",family,sep="")
@@ -397,7 +448,7 @@ centile.gamlssReport<-function(object,y,newdata){
 #' @param object the object of class \code{"gamlssReport"} generated by \code{\link{gamlssReport}}.
 #' @param centile the centile for which to calculate the score.
 #' @param newdata a dataframe containing the Xs for which to evaluate the centile.
-#'
+#' @param gamlss.prediction logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.
 #' @return a vector containing the scores
 #' @details \code{centile} can be a vector, in this case \code{newdata} need to be a dataframe with single row, or dataframe with the same no of rows as \code{centile}; if \code{centile} is a scalar \code{newdata} can have as many rows as desired; see examples.
 #'
@@ -416,9 +467,9 @@ centile.gamlssReport<-function(object,y,newdata){
 #' score.gamlssReport(m.aids1,centile=c(0.1,0.9),newdata=data.frame(x=c(4,5),qrt= c("reference",2) ))
 
 
-score.gamlssReport<-function(object,centile,newdata){
+score.gamlssReport<-function(object,centile,newdata,gamlss.prediction=FALSE){
 
-  pred<-predict.gamlssReport(object,newdata  )$fv
+  pred<-predict.gamlssReport(object,newdata,gamlss.prediction  )$fv
   family<-object$family[1]
 
   f<-paste("q",family,sep="")
@@ -442,7 +493,7 @@ score.gamlssReport<-function(object,centile,newdata){
 #' @param xnew.spline a named list containing a vector of values for the variable that is modeled as P-spline in \code{pb()} in a call to \code{gamlss}; needs to be of the same length as the number of parameters (\code{mu}, \code{sigma}, \code{nu}, \code{tau}), \code{NULL} if the parameter does not have a P-spline term.
 #' @param z.new a named list containing fixed effects design matrix for each parameter.
 #' z.new[[ii]] also needs to be a named list, with the names being equal to the names of the spline var
-#'
+#' @param gamlss.prediction logical, if \code{TRUE} it uses the spline interpolation approach implemented in \code{predict.gamlss}, otherwise it uses the interpolation of the B-spline basis and the estimated penalized coefficients. Defaults to \code{FALSE}. Note: if set to \code{TRUE}, the \code{\link{gamlssReport}} had to be used with \code{extract.smooth=TRUE}, oterwise the error is returned.
 #' @seealso \code{\link{predict.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
@@ -459,7 +510,13 @@ score.gamlssReport<-function(object,centile,newdata){
 
 
 
-make_prediction<-function(object,xnew.spline,z.new){
+make_prediction<-function(object,xnew.spline,z.new,gamlss.prediction=FALSE){
+
+  if (gamlss.prediction==TRUE&is.null(object$term.smooth)) stop("Smooth terms were not extracted by gamlssReport. Use gamlssReport with extract.smooth=TRUE.")
+
+  funi<-function(i,x,s,xnew.spline){ #this can be used for each param, to get smooth preds for ech nonlinear term
+    spline(x=x[,i],y=s[,i],xout=xnew.spline[[i]],method="natural")$y
+  }
   params<-object$params
 
 
@@ -471,18 +528,24 @@ make_prediction<-function(object,xnew.spline,z.new){
     cfi<-object$coef.beta[[i]]
 
     if (!is.null(object$terms$splinevar[[i]])){
-	cfs<-D<-vector("list",length=length(object$terms$splinevar[[i]]))
+
+      if (gamlss.prediction==FALSE){
+  cfs<-D<-vector("list",length=length(object$terms$splinevar[[i]]))
 	names(cfs)<-names(D)<-object$terms$splinevar[[i]]
 	for (ii in object$terms$splinevar[[i]] ){
       cfs[[ii]]<-object$coef.spline[[i]][[ii]]
       D[[ii]]<-make_spline(xnew.spline[[i]][[ii]],object$knots.spline[[i]][[ii]],object$degree.spline[[i]][[ii]],object$range.x[[i]][[ii]])
 	}#end for
 	} #end if
-
+}
     if (!is.null(object$terms$splinevar[[i]])){
 	lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)
 	for (ii in object$terms$splinevar[[i]]){
-      lp[[i]]<-lp[[i]]+D[[ii]]%*%cfs[[ii]]
+	  if (gamlss.prediction==FALSE){lp[[i]]<-lp[[i]]+D[[ii]]%*%cfs[[ii]]} else {
+	    whichs<-which(object$terms$splinevar[[i]]==ii)
+	    s<-spline(x=object$term.smooth$x[[i]][,whichs],y=object$term.smooth$y[[i]][,whichs],xout=xnew.spline[[i]][[ii]],method="natural")$y #!!!!
+	    lp[[i]]<-lp[[i]]+s
+	  }
 	}
     } else {
       lp[[i]]<-z.new[[i]]%*%matrix(cfi,ncol=1)

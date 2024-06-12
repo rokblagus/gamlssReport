@@ -4,10 +4,12 @@
 \alias{gamlssReport}
 \title{Extract information from the GAMLSS fitted objects}
 \usage{
-gamlssReport(object)
+gamlssReport(object, extract.smooth = FALSE)
 }
 \arguments{
-\item{object}{an object of class \code{"gamlss"}.
+\item{object}{an object of class \code{"gamlss"}.}
+
+\item{extract.smooth}{logical indicating if the prediction for the smooth terms should be extracted (see details). Defaults to \code{FALSE}.
 Note: multiple smooth terms per parameter are allowed (these smooth terms had to be obtained using \code{pb()}).}
 }
 \value{
@@ -27,10 +29,14 @@ A list with components
 \item{\code{fixformula}} {formula for the linear effects (a named list, with names corresponding to the parameters)}
 \item{\code{splinevar}} {names of the variables that were used for P-splines (a named list, with names corresponding to the parameters; \code{NULL} for parameters where \code{pb()} was not used)}
 }
+\item{\code{term.smooth} if \code{extract.smooth=TRUE} the fitted smooth terms for the observed datapoints}
 }
 }
 \description{
 The function extracts the paramaters of the fitted GAMLSS object.
+}
+\details{
+In the presence of additive terms there are two approaches for making interpolation (for the observed data points the two approaches return the same result): 1) interpolating the values of the B-spline basis for the new datapoints and using the estimated penalized coefficients to obtain predictions and 2) spline interpolation is performed using the estimated smooth terms for the observed datapoints. The latter approach (implemented in \code{\link{predict.gamlss}} using natural splines) requires that the fitted smooth terms and original datapoints for the variable(s) used to form the spline are saved. Setting \code{extract.smooth=TRUE} will save these and enable to exactly replicate the results of \code{\link{predict.gamlss}} when using \code{\link{predict.gamlssReport}}. Note that this will enable sharing the potentially sensible information!
 }
 \examples{
 library(gamlss)

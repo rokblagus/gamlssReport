@@ -6,12 +6,16 @@ data(aids)
 set.seed(1)
 aids$z<-runif(nrow(aids))
 
-fit<-gamlss(y~pb(z,df=10)+qrt,data=aids,family=PO)
+fit<-gamlss(y~pb(z,df=10)+qrt+pb(x,df=5),data=aids,family=PO)
 m<-gamlssReport(fit)
+m2<-gamlssReport(fit,extract.smooth = TRUE)
 
-newm<-data.frame(qrt="3",z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000))
+newm<-data.frame(qrt="3",z=0.25,x=2)
 mp<-predict(m,newm)$lp$mu
-gp<-predict(fit,newdata=data.frame(qrt=3,z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)),what="mu",type="link")
+gp<-gamlss::predict(fit,newdata=data.frame(qrt=3,z=0.25,x=2),what="mu",type="link")
+
+mp2<-predict.gamlssReport(m2,newm,gamlss.prediction = TRUE)$lp$mu
+
 
 plot(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),mp,type="l",col="red")
 lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),gp)
@@ -73,10 +77,29 @@ legend("topleft",legend=c("gamlssReport","gamlss"),lty=1,col=c("red","black"),bt
 legend("topright",legend=c("data","gamlssReport:observed z","gamlss:observed z"),pch=c(16,1,4),col=c("black","red","black"),bty="n")
 zz<-seq(from=min(aids$z),to=max(aids$z),length.out = 10000)
 
-ss<-spline(x=aids$z,y=mp2,xout=zz,method="natural")
+mp3<-predict(m,newm2)$lp$mu
+mp4<-cbind(1,newm2$z)%*%matrix(m$coef.beta$mu,ncol=1)
+s<-mp3-mp4 #the same as fit$mu.s
+ss<-spline(x=aids$z,y=s,xout=zz)
+predl<-cbind(1,zz)%*%matrix(m$coef.beta$mu,ncol=1)+ss$y
+pred<-exp(predl)
+lines(ss$x,pred,col="magenta")
 
 
-lines(ss$x,ss$y,col="magenta")
+ss<-spline(x=aids$z,y=s,xout=zz,method="natural")
+predl<-cbind(1,zz)%*%matrix(m$coef.beta$mu,ncol=1)+ss$y
+pred<-exp(predl)
+lines(ss$x,pred,col="green")
+
+legend("bottomleft",legend=c("natural","fmm"),lty=1,col=c("green","magenta"))
+
+plot(pred-gp)
+#why the fuck do they use natural spline???
+
+
+#gamlss is doing
+fuckups<-exp(cbind(1,zz)%*%matrix(m$coef.beta$mu,ncol=1)+spline(x=aids$z,y=fit$mu.s,xout=zz,method="natural")$y)
+fuckups-gp
 
 
 ##
