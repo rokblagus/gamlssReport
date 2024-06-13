@@ -1,0 +1,103 @@
+#the code needs to be updated so that it can be used with the package
+
+setwd("E:/CentileCurvesFSP")
+
+dd<-read.spss("SVK2018a.sav",to.data.frame=TRUE)
+#load("ATT04218.Rdata")
+ninit<-nrow(dd)
+dim(dd)
+head(dd)
+
+dd$x<-dd$SDM
+
+nmis<-sum(is.na(dd$x))
+#dd<-dd[!is.na(dd$x),]
+#dd<-dd[!(is.na(dd$age)|is.na(dd$bmi)|is.na(dd$T600)|is.na(dd$SDM)|is.na(dd$spol)),]
+
+dd<-dd[,c("x", "AKG", "DPR", "PON",  "DT", "PRE", "VZG", "T60",  "ATV", "age", "spol")]
+dd<-na.omit(dd)
+dd$spol<-ifelse(dd$spol=="mo?\241ki",0,1)
+
+#lmx<-lm( x~  SDM+ T600+T60+age+ATT+spol,data= dd     )
+ 
+lmx<-lm( x~ AKG  +DPR  +PON    +DT +PRE  +VZG  +T60  +age  +spol+ATV,data=dd ,x=T,y=T )
+
+rstd<-rstudent(lmx)
+
+ 
+
+n<-nrow(dd)
+
+l.cl<-1:floor(n*0.001)
+u.cl<-floor(n*(1-0.001)):n
+
+dd<-dd[order(rstd),]
+
+dd<-dd[-c(l.cl,u.cl),]
+
+lmx<-update(lmx,data=dd)
+#lmx<-lm( x~ age+bmi+T60+spol+SDM,data=dd  )
+
+
+
+rstd1<-rstudent(lmx)
+
+
+ 
+
+ddc<-dd
+
+ 
+
+ddm<-ddc[ddc$spol==0,]
+#ddm<-ddc[ddc$spol=="?enski",] 
+
+
+dds<-ddm[,c("age","x")]
+
+#dds<-dds[sample(1:nrow(dds),500),] #used for testing
+#dds<-dds #if all
+
+
+ddma<-dds
+
+k.s<-log(nrow(ddma))
+
+ 
+
+
+ddma$age.pt<-ddma$age**0.5
+
+
+k.s<-log(nrow(ddma))
+
+
+
+
+
+mod1 <- gamlss(x ~pb(age.pt, method="GAIC",k=k.s), sigma.fo = ~pb(age.pt, method="GAIC",k=k.s),
+  nu.fo = ~ pb(age.pt, method="GAIC",k=k.s) ,
+tau.fo = ~pb(age.pt, method="GAIC",k=k.s),
+      family = BCPEo,
+  control = gamlss.control(trace=FALSE,n.cyc = 100),data = ddma)
+
+
+ex.mod<-extract_params(mod1)
+
+print.extract(ex.mod)
+
+pred<-predict.extract(ex.mod, newdata=data.frame("age.pt"=sqrt(10)),splinevar=list(mu="age.pt",sigma="age.pt",nu="age.pt",tau="age.pt"),fixformula=list(mu=~age.pt,sigma=~age.pt,nu=~age.pt,tau=~age.pt))
+
+get_centile(140,pred$fv,ex.mod$family[1])
+get_score(0.9,pred$fv,ex.mod$family[1])
+
+make_spline(sqrt(10),knots=ex.mod$knots.spline$mu,degree=3,rng=ex.mod$range.x$mu)
+
+ 
+
+
+plot_centiles(ex.mod,"age.pt",c(sqrt(7),sqrt(18)),seq(from=0.1,to=0.9,by=0.1),xlab="sqrt.age",ylab="SBJ",main="centiles")
+
+
+
+

@@ -75,6 +75,43 @@ points(aids$z,mp2,col="red")
 points(aids$z,gp2,col="black",pch=4)
 legend("topleft",legend=c("gamlssReport","gamlss"),lty=1,col=c("red","black"),bty="n")
 legend("topright",legend=c("data","gamlssReport:observed z","gamlss:observed z"),pch=c(16,1,4),col=c("black","red","black"),bty="n")
+
+#if we want the same
+
+library(gamlssReport)
+library(gamlss)
+data(aids)
+
+set.seed(1)
+aids$z<-runif(nrow(aids))
+
+fit<-gamlss(y~pb(z,df=10),data=aids,family=PO)
+m<-gamlssReport(fit,extract.smooth = TRUE)
+
+newm<-data.frame(z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000))
+mp<-predict(m,newm,gamlss.prediction =TRUE)$fv$mu
+gp<-predict(fit,newdata=data.frame(z=seq(from=min(aids$z),to=max(aids$z),length.out = 10000)),what="mu",type="response")
+
+plot(aids$z,aids$y,pch=16)
+
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),mp,col="red")
+lines(seq(from=min(aids$z),to=max(aids$z),length.out = 10000),gp)
+#exactly the same!
+
+newm2<-aids
+#newm2$qrt<-as.character(newm2$qrt)
+#newm2$qrt[newm2$qrt=="1"]<-"reference"
+
+mp2<-predict(m,newm2,gamlss.prediction =TRUE)$fv$mu
+gp2<-predict(fit,newdata=aids,what="mu",type="response")
+
+points(aids$z,mp2,col="red")
+points(aids$z,gp2,col="black",pch=4)
+legend("topleft",legend=c("gamlssReport","gamlss"),lty=1,col=c("red","black"),bty="n")
+legend("topright",legend=c("data","gamlssReport:observed z","gamlss:observed z"),pch=c(16,1,4),col=c("black","red","black"),bty="n")
+
+
+
 zz<-seq(from=min(aids$z),to=max(aids$z),length.out = 10000)
 
 mp3<-predict(m,newm2)$lp$mu
