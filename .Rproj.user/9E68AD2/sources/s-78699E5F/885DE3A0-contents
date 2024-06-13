@@ -702,7 +702,6 @@ make_spline<-function(newx,knots,degree,rng){ #this will only work if in pb they
 
 
 
-##we could make this better: we have family and link, we create gamlss object and use .invlink to create inv. if link is not in gamlss family, we can let the user specify the inverse link
 
 #' @title Inverse of the link function
 #'
