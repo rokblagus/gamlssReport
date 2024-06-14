@@ -12,7 +12,7 @@ m2<-gamlssReport(fit,extract.smooth = TRUE)
 
 newm<-data.frame(qrt="3",z=0.25,x=2)
 mp<-predict(m,newm)$lp$mu
-gp<-gamlss::predict(fit,newdata=data.frame(qrt=3,z=0.25,x=2),what="mu",type="link")
+gp<-predict(fit,newdata=data.frame(qrt=3,z=0.25,x=2),what="mu",type="link")
 
 mp2<-predict.gamlssReport(m2,newm,gamlss.prediction = TRUE)$lp$mu
 

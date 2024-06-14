@@ -43,10 +43,10 @@ print.gamlssReport(m3)
 
 
 
- 
+
 object<-aids1
 
-#if there are more smooth terms, then 
+#if there are more smooth terms, then
 
 object[[paste(i,".coefSmo",sep="")]]
 
@@ -119,7 +119,7 @@ gp0<-predict(aids0,newdata=aids,what="mu",type="link")
 save(m3,file="my.Rdata")
 save(aids2,file="gm.Rdata")
 
-              
+
 
 aids44<-aids
 aids44$z<-aids44$z*100
@@ -129,3 +129,9 @@ m44<-gamlssReport(aids44)
 
 mp44<-predict.gamlssReport(m44,newdata=data.frame(x=1,qrt="reference",z=10))$lp$mu
 gp44<-predict(aids44,newdata=data.frame(x=1,qrt=1,z=10),what="mu",type="link")
+
+
+
+plot.gamlssReport(x=m.aids1,xname="x",range.x=c(1,45),
+                  x.transform=NULL,centiles=seq(from=10,to=90,by=20),
+                    newdata=data.frame(qrt=c("reference")),xlab="x",ylab="score")
