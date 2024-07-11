@@ -1,6 +1,122 @@
 
 
+#' @title Generate Shiny app
+#'
+#' @description Function \code{ShinyApp.gamlssReport} generates Shiny app, which plots centile curves for the object created by \code{\link{gamlssReport}}.
+#'
+#' @param obj An object of class \code{"gamlssReport"} representing the GAMLSS model summarized by the function \code{\link{gamlssReport}}.
+#' @param xname name (a character of length one) of the x variable used on the x-axis of the plot.
+#' Note, the name must exactly match the name of the variable that was used when fitting GAMLSS.
+#' @param range.x a numeric vector of length 2 specifying the range of x for which to show the centiles.
+#' @param plotArgs verbatim text (a character of length one) added after the first 3 parameters (i.e. after \code{obj,xname,range.x}) of \code{\link{plot.gamlssReport}}. Defaults to \code{xname=x, range.x=range(x), seq.length=1e3, xlab=xname, ylab='y'}.
+#' Note: as least \code{"xname"} and \code{"range.x"} should be provided as they have no default.
+#' @param dir (a character of length one) A directory where the function will save \code{app.R} and \code{gamlsReportObj.RDS} (a RDS file of an \code{obj}). Defaults to \code{paste0(getwd(),"/ShinyApp")}, i.e. ShinyApp folder in working directory.
+#' @param run logical Run app after it's generation? Defaults to \code{TRUE}.
+#'
+#' @details Function generates a new directory in which it saves two files: \code{"app.R"} and \code{"gamlsReportObj.RDS"}. When app is run it reads RDS file into gamlssReport object (copy of \code{obj} argument) and plots centile curves by using \code{\link{plot.gamlssReport}}. If user enters (x, y) or (x, centile) value pair, a dot (x,y) is added to the plot and a short comment is shown below the plot.
+#' @seealso \code{\link{gamlssReport}}, \code{\link{plot.gamlssReport}}
+#' @author Bojan Leskosek, \email{bojan.leskosek@@fsp.uni-lj.si}
+#' @export
+#' @examples
+#' library(gamlss)
+#' data(abdom)
+#' mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
+#' m.mod<-gamlssReport(mod)
+#' ## Not run:
+#' #ShinyApp.gamlssReport(obj=m.mod, xname="x", range.x=c(10,45), dir="/TestDir",
+#' #  plotArgs="seq.length=1e3, xlab='gestational age', ylab='abdominal circumference'")
+#' ## End(Not run)
 
+ShinyApp.gamlssReport<-function(obj, xname, range.x,
+                                plotArgs="seq.length=1e3, xlab=xname, ylab='y'",
+                                dir=paste0(getwd(),"/ShinyApp"), run=TRUE) {
+  if (!(class(obj) == "gamlssReport")) {
+    stop("Argument 'obj' must be of class gamlssReport.")
+  }
+  if (!dir.exists(dir)) {
+    dir.create(dir)
+    cat("Directory created:", dir, "\n")
+  } else {
+    cat("Directory", dir, "already exists. Existing files may be overwritten.")
+    response <- readline(prompt = "Do you want to continue? (Y/N): ")
+    if (toupper(response) != "Y") {
+      stop("Execution stopped by user.")
+    }
+  }
+
+  #app.R
+  appCode <- "# Shiny app, created by ShinyApp.gamlssReport function
+library(shiny)
+library(gamlss)
+library(gamlssReport)
+library(bslib)
+
+xname='"
+  appCode <- paste0(appCode,xname,"'", "\n")
+  appCode <- paste0(appCode, "range.x <- ",paste("c(", paste(range.x, collapse = ","), ")", sep = ""), "\n")
+  appCode <- paste0(appCode, "dir <- '", dir, "'\n")
+  appCode <- paste0(appCode, "obj <- readRDS('", dir, "/gamlsReportObj.RDS')\n")
+  appCode2 <- "
+# Define UI for application
+ui <-  page_sidebar(
+  title <- 'gamlssReport Centile Plot',
+  sidebar = sidebar(
+    numericInput('inputX', 'Enter X value:', value = range.x[1], min = range.x[1], max = range.x[2], step=(range.x[2]-range.x[1])/10),
+    numericInput('inputY', 'Enter Y value:', value = NA, min = -Inf, max = Inf),
+    helpText('-- or --'),
+    numericInput('inputC', 'Enter centile (0 - 100%):', value = NA, min = 1, max = 99),
+  ),
+  mainPanel(
+      plotOutput('centilePlot'),
+      textOutput('CentileOrY')
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  output$centilePlot <- renderPlot({
+    plot.gamlssReport(obj, xname=xname, range.x=range.x, "
+
+appCode <- paste0(appCode, appCode2, plotArgs)
+appCode2 <- ")
+    if (!is.na(input$inputX) && !is.na(input$inputY)) {
+      points(input$inputX, input$inputY, col = 'red', pch = 19, cex = 2)
+    } else {
+      if (!is.na(input$inputX) && !is.na(input$inputC)) {
+        nData <- data.frame(x=(c(input$inputX)))
+        names(nData) <- xname
+        y <- score.gamlssReport(obj, input$inputC, nData)
+        points(input$inputX, y, col = 'red', pch = 19, cex = 2)
+      }
+    }
+  })
+  # Calculate and display centile rank
+  output$CentileOrY <- renderText({
+    if (!is.na(input$inputX) && !is.na(input$inputC)) {
+      nData <- data.frame(x=(c(input$inputX)))
+      names(nData) <- xname
+      y <- score.gamlssReport(obj, input$inputC, nData)
+      paste('Y value for given centile is ', format(y, digits=4, nsmall=0), '.', sep='')
+    } else {
+      if (!is.na(input$inputX) && !is.na(input$inputY)) {
+      nData <- data.frame(x=(c(input$inputX)))
+      names(nData) <- xname
+      p <- centile.gamlssReport(obj, y=input$inputY, newdata=nData)
+      paste('Centile rank for point (x,y) is ', format(p, digits=4, nsmall=0), '%.', sep='')
+      } else {
+        '(you should enter Y value or centile)'
+      }
+    }
+  })
+}
+# Run the application
+shinyApp(ui = ui, server = server)
+"
+appCode <- paste0(appCode, appCode2)
+cat(appCode, file=paste0(dir,"/app.R"))
+saveRDS(obj, paste0(dir,"/gamlsReportObj.RDS"))
+if (run) shiny::runApp(dir)
+}
 
 
 #' @title Extract information from the GAMLSS fitted objects
@@ -30,7 +146,7 @@
 #' }
 #' \item{\code{term.smooth} if \code{extract.smooth=TRUE} the fitted smooth terms for the observed datapoints}
 #' }
-#' @seealso \code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}
+#' @seealso \code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}, \code{\link{ShinyApp.gamlssReport}}
 #' @author Rok Blagus, \email{rok.blagus@@mf.uni-lj.si}
 #' @export
 #' @examples

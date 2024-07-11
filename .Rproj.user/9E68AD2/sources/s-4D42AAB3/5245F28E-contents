@@ -1,5 +1,5 @@
 exportPattern("^[[:alpha:]]+")
-import(gamlss)
+import(gamlss,shiny,bslib)
 importFrom("graphics", "legend", "lines")
 importFrom("stats", "as.formula", "model.matrix", "family","spline")
 importFrom("gamlss.dist","make.link.gamlss")

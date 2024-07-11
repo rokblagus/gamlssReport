@@ -135,3 +135,16 @@ gp44<-predict(aids44,newdata=data.frame(x=1,qrt=1,z=10),what="mu",type="link")
 plot.gamlssReport(x=m.aids1,xname="x",range.x=c(1,45),
                   x.transform=NULL,centiles=seq(from=10,to=90,by=20),
                     newdata=data.frame(qrt=c("reference")),xlab="x",ylab="score")
+
+
+
+
+
+library(gamlss)
+ data(abdom)
+ mod<-gamlss(y~pb(x),sigma.fo=~pb(x),family=BCT, data=abdom, method=mixed(1,20))
+ m.mod<-gamlssReport(mod)
+ **## Not run:**
+ ShinyApp.gamlssReport(obj=m.mod, xname="x", range.x=c(10,45), dir="/TestDir",
+    plotArgs="seq.length=1e3, xlab='gestational age', ylab='abdominal circumference'")
+

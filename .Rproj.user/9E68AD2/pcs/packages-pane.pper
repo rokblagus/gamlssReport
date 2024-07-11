@@ -1,7 +1,7 @@
 {
     "installOptions" : {
         "installDependencies" : true,
-        "installFromRepository" : false,
-        "libraryPath" : "C:/Users/rblagus/Documents/R/win-library/4.0"
+        "installFromRepository" : true,
+        "libraryPath" : "C:/Users/rblagus/AppData/Local/R/win-library/4.4"
     }
 }

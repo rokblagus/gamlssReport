@@ -1,0 +1,316 @@
+---
+title: "Report - centile curves, VZG, not taking right censoring into account"
+author: "Rok Blagus"
+date: "2020"
+output: html_document
+---
+
+#  {.tabset .tabset-fade }
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 150)
+```
+
+## Cleaning of the data
+We clean the data as follows. We fit the model with *VZG* as dependent variable and *AKG*, *DPR*, *PON*,  *DT*, *PRE*, *SDM*, *T60*, *age*, *ATV*, and *spol* as independent variables (variables *ATT* and *BMI* are not included since they are right censored). Studentized residuals are obtained from this model. The subjects with the largest 0.1% and the smallest 0.1% studentized residuals are removed from further analysis. 
+
+```{r,results='hide', include=FALSE}
+library(abe)
+library(foreign)
+library(gamlss)
+dd<-read.spss("SVK2018a.sav",to.data.frame=TRUE)
+#load("ATT04218.Rdata")
+ninit<-nrow(dd)
+dim(dd)
+head(dd)
+
+dd$x<-dd$VZG
+
+nmis<-sum(is.na(dd$x))
+#dd<-dd[!is.na(dd$x),]
+#dd<-dd[!(is.na(dd$age)|is.na(dd$bmi)|is.na(dd$T600)|is.na(dd$SDM)|is.na(dd$spol)),]
+
+dd<-dd[,c("x", "T60","AKG", "DPR", "PON",  "DT", "PRE",  "SDM",  "ATV", "age", "spol")]
+dd<-na.omit(dd)
+dd$spol<-ifelse(dd$spol=="moški",0,1)
+
+#lmx<-lm( x~  SDM+ T600+T60+age+ATT+spol,data= dd     )
+ 
+lmx<-lm( x~ T60+AKG  +DPR  +PON    +DT +PRE  +SDM  +age  +spol+ATV,data=dd ,x=T,y=T )
+
+
+
+```
+
+Prior to cleaning the data there were `r nmis` missing values for the response variable. In order to fit the model, mising values had to be removed. The size of the original data was `r ninit` After removing the missing values the sample size was  `r nrow(dd)`. 
+
+
+The plot of the studentized residuals vs. *age* for the model fitted to all data (left panel) and to the final data (right panel):
+```{r,echo=FALSE,results='hide', fig.height=4}
+
+rstd<-rstudent(lmx)
+
+par(mfrow=c(1,2))
+plot(dd$age ,rstd,main=paste("n=",nrow(dd)),xlab="age",ylab="Studentized residuals")
+#dd<-na.omit(dd)
+#clean upper and lower 0.1 %
+
+n<-nrow(dd)
+
+l.cl<-1:floor(n*0.001)
+u.cl<-floor(n*(1-0.001)):n
+
+dd<-dd[order(rstd),]
+
+dd<-dd[-c(l.cl,u.cl),]
+
+lmx<-update(lmx,data=dd)
+#lmx<-lm( x~ age+bmi+T60+spol+SDM,data=dd  )
+
+
+
+rstd1<-rstudent(lmx)
+
+
+plot(dd$age ,rstd1,main=paste("n=",nrow(dd)),xlab="age",ylab="Studentized residuals")
+
+ddc<-dd
+
+```
+
+After data cleaning, the sample size was `r nrow(ddc)`.
+
+
+
+
+## Male  
+
+GAMLSS was fitted using BCPE (using *log* link for $\mu$, $\sigma$ and $\tau$ and the identity link for the $\nu$ parameter) using $\lambda=0.5$ for the power transformation of *age*.  Szhwarz(Bayesian) GAIC was used to optimize the degrees of freedom for P-splines fit for $\mu$ and $\sigma$ assuming a linear association for $\tau$ and constant for $\nu$ parameters (optimization od $\tau$ and $\nu$ resulted in an error) of the BCPE distribution. In order to be able to fit the BCPE distribution (note that there are zeros in the data), we shifted each observation for $\Delta=100$ and truncated the BCPE distribution at this value, using package **gamlss.tr**. 
+
+```{r,results='hide', include=FALSE}
+ddm<-ddc[ddc$spol==0,]
+#ddm<-ddc[ddc$spol=="ženski",] 
+
+
+dds<-ddm[,c("age","spol","x")]
+
+#dds<-dds[sample(1:nrow(dds),500),] #used for testing
+#dds<-dds #if all
+
+
+ddma<-dds
+
+k.s<-log(nrow(ddma))
+
+#mod1q <- quote(gamlss(x~pb(nage, method="GAIC",k=k.s), sigma.fo = ~pb(nage, method="GAIC",k=k.s),
+#  nu.fo = ~ pb(nage, method="GAIC",k=k.s) ,
+#tau.fo = ~pb(nage, method="GAIC",k=k.s),
+#      family = BCPEo,
+#  control = gamlss.control(trace=FALSE,n.cyc = 100),data = ddma) )
+
+
+ 
+##slow...
+
+#opt<-find.hyper(model= mod1q, other=quote(nage<-age^p[1]),
+ #par = 1,
+ #lower = 0.15, upper=2,
+ #steps = 0.05,
+ #k=k.s)
+
+
+ddma$nage<-ddma$age**0.5
+ ddma$x<-ddma$x+100
+library(gamlss.tr)
+ 
+gen.trun(100,BCPEo,type="left")
+
+
+  mod1 <- gamlss(x ~pb(nage, method="GAIC",k=k.s), sigma.fo = ~pb(nage, method="GAIC",k=k.s),
+  nu.fo = ~ nage ,
+tau.fo = ~1,
+      family = BCPEotr,
+  control = gamlss.control(trace=FALSE,n.cyc = 800),data = ddma) #ok on a subset(much better fit than when using BCPEo) error on complete data
+ 
+```
+
+The estimated optimal degrees of freedom for the 4 parameters of the BCPE distribution (note that these are the actual number of df, so if the model is to be refitted by using fixed **df** argument in **pb()** 2 needs to be subtracted to get the same model) were equal to
+```{r,echo=FALSE,comment="",warning=FALSE}
+df<-c(mod1$mu.df,mod1$sigma.df,mod1$nu.df,mod1$tau.df)
+names(df)<-c("mu","sigma","nu","tau")
+df
+```
+
+Swarz GAIC of the final model.
+```{r,echo=FALSE,comment="",warning=FALSE}
+GAIC(mod1,k=k.s)
+```
+
+
+```{r,echo=FALSE, include=FALSE,eval=FALSE} 
+summary(mod1)
+```
+
+Centile curves and empirical quantiles (note that these results are on the shifted scale).
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE}
+cp<-centiles(mod1,  xvar=ddma$age, cent = c(1,3,10,25,50,75,90,97,99),points=TRUE,save=TRUE)
+```
+
+```{r,echo=FALSE,comment="",warning=FALSE}
+cp
+```
+
+```{r,results='hide', include=FALSE,eval=FALSE}
+plot(mod1,ddma$age )
+```
+
+The 4 parameters of the BCPE distribution as the function of *age*.
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE}
+fittedPlot(mod1, x=ddma$age)
+```
+
+Q-stats for the final model, using 150 groups
+```{r,echo=FALSE,comment="",warning=FALSE}
+Q.stats(mod1, xvar =  ddma$age, n.inter = 150,plot = FALSE) #change to 150 for the final version
+```
+
+Worm plot of the residuals from the final model. The plot cannot be shown
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE,eval=FALSE}
+wp(mod1,ddma$age, n.inter = 20)
+```
+
+The table of estimated centiles for some values of *age* (note that these estimates are on the original scale).
+
+```{r,results='hide', include=FALSE,warning=FALSE}
+age.new=seq(from=6,to=18,by=0.25)**0.5
+mt<-centiles.pred(mod1, type =  "centiles" , 
+             xname = "nage", xvalues = age.new, cent = c(1,3,10,25,50,75,90,97,99))
+
+mt<-cbind(age.new**(2),mt)
+
+mt[,-c(1,2)]<-mt[,-c(1,2)]-100
+```
+
+```{r,echo=FALSE,comment="",warning=FALSE}
+mt
+```
+
+
+
+
+## Female  
+
+GAMLSS was fitted using BCPE (using *log* link for $\mu$, $\sigma$ and $\tau$ and the identity link for the $\nu$ parameter) using $\lambda=0.5$ for the power transformation of *age*.  Szhwarz(Bayesian) GAIC was used to optimize the degrees of freedom for P-splines for the 4 parameters of the BCPE distribution. In order to be able to fit the BCPE distribution (note that there are zeros in the data), we shifted each observation for $\Delta=100$ and truncated the BCPE distribution at this value, using package **gamlss.tr**. 
+
+```{r,results='hide', include=FALSE}
+ddm<-ddc[ddc$spol==1,]
+#ddm<-ddc[ddc$spol=="ženski",] 
+
+
+dds<-ddm[,c("age","spol","x")]
+
+#dds<-dds[sample(1:nrow(dds),500),] #used for testing
+#dds<-dds #if all
+
+
+ddma<-dds
+
+k.s<-log(nrow(ddma))
+
+#mod1q <- quote(gamlss(x~pb(nage, method="GAIC",k=k.s), sigma.fo = ~pb(nage, method="GAIC",k=k.s),
+#  nu.fo = ~ pb(nage, method="GAIC",k=k.s) ,
+#tau.fo = ~pb(nage, method="GAIC",k=k.s),
+#      family = BCPEo,
+#  control = gamlss.control(trace=FALSE,n.cyc = 100),data = ddma) )
+
+
+ 
+##slow...
+
+#opt<-find.hyper(model= mod1q, other=quote(nage<-age^p[1]),
+ #par = 1,
+ #lower = 0.15, upper=2,
+ #steps = 0.05,
+ #k=k.s)
+
+
+ddma$nage<-ddma$age**0.5
+ ddma$x<-ddma$x+100
+library(gamlss.tr)
+ 
+gen.trun(100,BCPEo,type="left")
+
+
+  mod1 <- gamlss(x ~pb(nage, method="GAIC",k=k.s), sigma.fo = ~pb(nage, method="GAIC",k=k.s),
+  nu.fo = ~ 1 ,
+tau.fo = ~1,
+      family = BCPEotr,
+  control = gamlss.control(trace=FALSE,n.cyc = 800),data = ddma) #ok on a subset(much better fit than when using BCPEo) error on complete data
+ 
+```
+
+The estimated optimal degrees of freedom for the 4 parameters of the BCPE distribution (note that these are the actual number of df, so if the model is to be refitted by using fixed **df** argument in **pb()** 2 needs to be subtracted to get the same model) were equal to
+```{r,echo=FALSE,comment="",warning=FALSE}
+df<-c(mod1$mu.df,mod1$sigma.df,mod1$nu.df,mod1$tau.df)
+names(df)<-c("mu","sigma","nu","tau")
+df
+```
+
+Swarz GAIC of the final model.
+```{r,echo=FALSE,comment="",warning=FALSE}
+GAIC(mod1,k=k.s)
+```
+
+
+```{r,echo=FALSE, include=FALSE,eval=FALSE} 
+summary(mod1)
+```
+
+Centile curves and empirical quantiles (note that these results are on the shifted scale).
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE}
+cp<-centiles(mod1,  xvar=ddma$age, cent = c(1,3,10,25,50,75,90,97,99),points=TRUE,save=TRUE)
+```
+
+```{r,echo=FALSE,comment="",warning=FALSE}
+cp
+```
+
+```{r,results='hide', include=FALSE,eval=FALSE}
+plot(mod1,ddma$age )
+```
+
+The 4 parameters of the BCPE distribution as the function of *age*.
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE}
+fittedPlot(mod1, x=ddma$age)
+```
+
+Q-stats for the final model, using 150 groups
+```{r,echo=FALSE,comment="",warning=FALSE}
+Q.stats(mod1, xvar =  ddma$age, n.inter = 150,plot = FALSE) #change to 150 for the final version
+```
+
+Worm plot of the residuals from the final model. Plot cannot be shown!
+```{r,echo=FALSE,results='hide', fig.height=8,warning=FALSE,eval=FALSE}
+wp(mod1,ddma$age, n.inter = 20)
+```
+
+The table of estimated centiles for some values of *age* (note that these estimates are on the original scale).
+
+```{r,results='hide', include=FALSE,warning=FALSE}
+age.new=seq(from=6,to=18,by=0.25)**0.5
+mt<-centiles.pred(mod1, type =  "centiles" , 
+             xname = "nage", xvalues = age.new, cent = c(1,3,10,25,50,75,90,97,99))
+
+mt<-cbind(age.new**(2),mt)
+
+mt[,-c(1,2)]<-mt[,-c(1,2)]-100
+```
+
+```{r,echo=FALSE,comment="",warning=FALSE}
+mt
+```
+
+

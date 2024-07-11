@@ -53,7 +53,7 @@ m.mod<-gamlssReport(mod)
 m.mod
 }
 \seealso{
-\code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}
+\code{\link{plot.gamlssReport}}, \code{\link{print.gamlssReport}}, \code{\link{predict.gamlssReport}}, \code{\link{centile.gamlssReport}}, \code{\link{score.gamlssReport}}, \code{\link{ShinyApp.gamlssReport}}
 }
 \author{
 Rok Blagus, \email{rok.blagus@mf.uni-lj.si}
