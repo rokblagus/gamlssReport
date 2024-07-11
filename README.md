@@ -10,11 +10,13 @@ print.gamlssReport::print function for objects created by gamlssReport
 
 predict.gamlssReport::user friendly wrapper for make_prediction (uses: make_prediction)
 
-centile.gamlssReport:: calculates a centile for y given xs (uses: predict.gamlssReport)
+centile.gamlssReport::calculates a centile for y given xs (uses: predict.gamlssReport)
 
-score.gamlssReport:: calculates a score for centile given xs (uses: predict.gamlssReport)
+score.gamlssReport::calculates a score for centile given xs (uses: predict.gamlssReport)
 
 plot.gamlssReport::plots centiles; can also return an object that can be used to make some nicer plots, e.g. using ggplot (uses: score.gamlssReport)
+
+ShinyApp.gamlssReport::generates Shiny app, which plots centile curves for the object created by gamlssReport
 
 
 
