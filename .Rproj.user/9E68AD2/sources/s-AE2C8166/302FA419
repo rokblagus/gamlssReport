@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1721036286534.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "302FA419",
+    "lastKnownWriteTime" : 1721211499,
+    "last_content_update" : 1721211499849,
+    "path" : "E:/SAVA_AIboard/script.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "57,40",
+        "scrollLine" : "39"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

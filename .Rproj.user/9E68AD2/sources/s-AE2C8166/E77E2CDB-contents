@@ -1,0 +1,340 @@
+library(haven)
+library(tidyverse)
+library(nlme)
+library(MASS)
+
+mydata = read_dta("anes2004TSdta/anes2004TS.dta")
+
+# shrink the data to few variables
+shrunk0 = mydata %>% 
+   dplyr::select(V043250,
+          V041109a, # 1=male, 2=female
+          V043254, # 3-7: higher=1
+          V043247, # 2=Christian
+          V043299, # 10=black, 50=white, other
+          V043086, # 1=liberal
+          V043143, # 1-2=very important defense
+          V043186, # death
+          V043114, # 1=rep, 2=dem, 3=indep
+          V043132, # Iraq war
+          V043038, # feeling thermometer Bush
+          V041201
+          )
+
+shrunk2 = shrunk0 %>% 
+   transmute(age=V043250,
+             gender=ifelse(V041109a==1,1,0), # 1=male, 2=female
+             educ=ifelse(V043254>=4,1,0), # 3-7: higher=1
+             christian= ifelse(V043247%in%c(1,2,3),1,ifelse(V043247%in%c(0),NA,0)), # 2=Christian (NA/RF/DK = missing)
+             black=ifelse(V043299<20,1,0), # 10=black, 50=white, other
+             other=ifelse(V043299%in%c(20,23,24,25,30,34,35,40,45,70,88,89),1,0), # 10=black, 50=white, other (88-DK dontknow,89-RF refused)
+             liberal=ifelse(V043086==1,1,0), # 1=liberal (7-refused, 8-dont know)
+             defence=ifelse(V043143%in%c(1,2),1,0), # 1-2=very important defense (8-DK dontknow,9-RF refused)
+             death=ifelse(V043186==1,1,0), # 1-death penalty favor, (8-DK dontknow,9-RF refused)
+             democrat=ifelse(V043114==2,1,0), # 1=rep, 2=dem, 3=indep (4=other,5=noPref,8-DK dontknow,9-RF refused)
+             indep=ifelse(V043114>=3,1,0), # 1=rep, 2=dem, 3=indep (4=other,5=noPref,8-DK dontknow,9-RF refused)
+             Iraq=ifelse(V043132==1,1,0), # Iraq war 1=approve, 5=disapprove (8-DK dontknow,9-RF refused)
+             feeling=ifelse(V043038>100,NA,V043038), # missings
+             state=V041201 # exclude 5 with less than 19 people
+   )
+
+exclStates=names(sort(table(na.omit(shrunk2)$state))[1:5])
+
+shrunk2 = shrunk2 %>%
+   mutate(state=ifelse(state%in%exclStates,NA,state))
+dim(na.omit(shrunk2)) # 1156, 14 variables, 24 states
+
+## DATA TO WORK WITH
+shrunkF = na.omit(shrunk2) 
+# shrunkF %>% group_by(state) %>% summarise(freq=n()) %>% arrange(freq) %>% print(n=40) # cluster numbers n_i
+#hist(shrunkF$feeling,breaks=seq(0,108, by=9))
+
+set.seed(1)
+#load functions by CP from file functions_gofLMM.R in the package folder
+source("../functions_gofLMM.R")
+
+# order data according to states (variable "id") - to be able to use "functions _gofLMM.R"
+shrunkF = shrunkF %>%
+   arrange(state) %>%
+   mutate(id = as.numeric(factor(state)))
+
+
+txt1<-expression(W^O)
+txt2<-expression(W^F)
+txt3<-expression(W^F^s)
+
+########################## ANALYSIS - with ANOVA ##############################
+
+shrunkF<-as.data.frame(shrunkF)
+
+fit<-lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq,
+          data=shrunkF, random=~0+gender+christian|id, 
+          control=lmeControl( returnObject = TRUE),method="REML" )
+summary(fit)
+getVarCov(fit, type="random.effects") # estimated D matrix
+getVarCov(fit,type="marginal")[[1]][1,1] # model variance (sigma^2)
+
+
+
+
+fit.gof<-gof.lmm(fit,subset.fix=feeling~age+Iraq,residuals="individual",std.type=2,use.correction.for.imbalance=FALSE,M=100,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = FALSE,lambda=0.5)
+sm<-summary(fit.gof)
+par(mfrow=c(4,3))
+plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("B) CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("C) CvM=",round(sm[2,2],4),sep=""))
+
+
+# adding interactions
+fit<-lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq,
+          data=shrunkF, random=~0+gender+christian|id, 
+          control=lmeControl( returnObject = TRUE),method="ML" )
+#summary(fit)
+
+## CHRISTIAN:BLACK - highly significant - INCLUDE
+fit1 = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+               christian:black,
+            data=shrunkF, random=~0+gender+christian|id, 
+            control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit,fit1)
+
+fit.gof<-gof.lmm(fit1,subset.fix=feeling~christian+black,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=100,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = FALSE,lambda=0.5)
+sm<-summary(fit.gof)
+plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("B) CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("C) CvM=",round(sm[2,2],4),sep=""))
+
+## DEFENCE:IRAQ - highly significant
+fit2 = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+               christian:black + defence:Iraq,
+            data=shrunkF, random=~0+gender+christian|id, 
+            control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit1,fit2)
+
+
+## LIBERAL:IRAQ
+fit3 = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+               christian:black + defence:Iraq + liberal:Iraq,
+            data=shrunkF, random=~0+gender+christian|id, 
+            control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit2,fit3)
+
+fit.gof<-gof.lmm(fit3,subset.fix=feeling~defence+Iraq,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=100,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = FALSE,lambda=0.5)
+sm<-summary(fit.gof)
+plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("B) CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("C) CvM=",round(sm[2,2],4),sep=""))
+
+
+# DEMOCRAT:BLACK
+fit4a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+               christian:black + defence:Iraq + liberal:Iraq + democrat:black,
+            data=shrunkF, random=~0+gender+christian|id, 
+            control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit3,fit4a)
+
+# INDEP:IRAQ 
+fit5a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+                christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+                indep:Iraq,
+             data=shrunkF, random=~0+gender+christian|id, 
+             control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit4a,fit5a)
+
+# DEMOCRAT:IRAQ (indep + democrat produce one categorical variable)
+fit6a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+                christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+                indep:Iraq + democrat:Iraq,
+             data=shrunkF, random=~0+gender+christian|id, 
+             control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit5a,fit6a)
+
+fit.gof<-gof.lmm(fit6a,subset.fix=feeling~democrat+Iraq,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=100,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = FALSE,lambda=0.5)
+sm<-summary(fit.gof)
+plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("B) CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("C) CvM=",round(sm[2,2],4),sep=""))
+
+
+# add age into RANDOM effect to get better W^O
+fit7a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+                christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+                indep:Iraq + democrat:Iraq,
+             data=shrunkF, random=~0+gender+christian+age|id, 
+             control=lmeControl( returnObject = TRUE),method="ML" )
+anova(fit6a,fit7a)
+
+
+########################## ANALYSIS - FOR PAPER ##############################
+
+fit<-lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq,
+          data=shrunkF, random=~0+gender+christian|id, 
+          control=lmeControl( returnObject = TRUE),method="REML" )
+fit6a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+indep+Iraq + 
+                christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+                indep:Iraq + democrat:Iraq,
+             data=shrunkF, random=~0+gender+christian|id, 
+             control=lmeControl( returnObject = TRUE),method="REML" )
+#fit7a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+
+ #               indep+Iraq + 
+  #              christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+   #             indep:Iraq + democrat:Iraq,
+    #         data=shrunkF, random=~0+gender+christian+christian:black+black+
+     #           Iraq+christian:Iraq|id, 
+      #       control=lmeControl( returnObject = TRUE),method="REML" )
+#fit7aa = lmer( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+
+ #               indep+Iraq + 
+  #              christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+   #             indep:Iraq + democrat:Iraq+(0+gender+christian+Iraq+christian:Iraq|id),
+    #         data=shrunkF  )
+
+#fit7a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+
+ #               indep+Iraq + 
+  #              christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+   #             indep:Iraq + democrat:Iraq,
+    #         data=shrunkF, random=~0+gender+christian+Iraq+christian:Iraq|id, 
+     #        control=lmeControl( returnObject = TRUE),method="REML" )
+
+fit7a = lme( feeling~ age+educ+christian+black+other+liberal+defence+death+democrat+
+                indep+Iraq + 
+                christian:black + defence:Iraq + liberal:Iraq + democrat:black +
+                indep:Iraq + democrat:Iraq,
+             data=shrunkF, random=~0+gender+christian+christian:black+black+
+                Iraq+christian:Iraq|id, 
+             control=lmeControl(maxIter = 500, msMaxIter = 500, tolerance = 1e-6, niterEM = 250,
+                                msMaxEval = 500, returnObject = TRUE),method="REML" )
+
+
+# # to produce Supplement tables
+# library(knitr)
+# a = summary(fit)
+# kable(a$tTable[,c(1,2,5)],digits=2,format="latex")
+# getVarCov(fit, type="random.effects") # estimated D matrix
+# getVarCov(fit,type="marginal")[[1]][1,1] # model variance (sigma^2)
+# 
+# 
+# b = summary(fit7a)
+# kable(b$tTable[,c(1,2,5)],digits=2,format="latex")
+# getVarCov(fit7a, type="random.effects") # estimated D matrix
+# getVarCov(fit7a,type="marginal")[[1]][1,1] # model variance (sigma^2)
+# 
+# along = rbind(a$tTable[,c(1,2,5)],matrix(ncol=3,nrow=6))
+# options(knitr.kable.NA = '')
+# kable(cbind(b$tTable[,c(1,2,5)],along),digits=2,format="latex",)
+
+# so much we can do with the sample size at hand; the models become too large, possible overfitting
+
+par(mfrow=c(3,2))
+set.seed(43)
+M = 500
+fit.gof<-gof.lmm(fit,subset.fix=feeling~defence+Iraq,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=M,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = TRUE,lambda=10)
+sm<-summary(fit.gof)
+sm
+#plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("F-process: CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("O-process: CvM=",round(sm[2,2],4),sep=""))
+
+
+fit.gof<-gof.lmm(fit6a,subset.fix=feeling~christian+black,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=M,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = TRUE,lambda=10)
+sm<-summary(fit.gof)
+sm
+#plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("F-process: CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("O-process: CvM=",round(sm[2,2],4),sep=""))
+
+
+fit.gof<-gof.lmm(fit7a,subset.fix=feeling~christian+black,residuals="cluster",std.type=2,use.correction.for.imbalance=FALSE,M=M,verbose=FALSE,type="simulation",flip.cluster = TRUE,use.normal =FALSE,use.sigmoid = TRUE,lambda=10)
+sm<-summary(fit.gof)
+sm
+#plot.gofLMM.part(fit.gof$Fs,fit.gof$Fsm,type=2,fit.gof$predFs,fit.gof$predFsm,xlab="",ylab=txt3,main=paste("A) CvM=",round(sm[6,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$F,fit.gof$Fm,type=2,fit.gof$predF,fit.gof$predFm,xlab="",ylab=txt2,main=paste("F-process: CvM=",round(sm[4,2],4),sep=""))
+
+plot.gofLMM.part(fit.gof$O,fit.gof$Om,type=2,fit.gof$predO,fit.gof$predOm,xlab="",ylab=txt1,main=paste("O-process: CvM=",round(sm[2,2],4),sep=""))
+
+
+
+
+
+ ##############################################################################################
+
+####additional by Rok, using opt lambda procedure, seems ok!
+set.seed(43)
+M=500 #used for a quick test
+#lambda<-c(1,5,10,20,50,1000) #maybe we should try other options to get more variety, I would not go under 0.5
+
+#lambda<-c(1150,1200) #maybe we should try other options to get more variety, I would not go under 0.5
+lambda<-c(5,10,50,200,500,1000,1200) #maybe we should try other options to get more variety, I would not go under 0.5
+
+gf1<-gof.lmm.std.test2.opt.lam.v2(fit,residuals= "cluster" ,std.type=2,use.correction.for.imbalance=FALSE,
+                                 M=M,
+                                 order.by.original=TRUE,verbose=FALSE,flip.cluster=TRUE,
+                                 use.normal=FALSE,use.mammen=FALSE,lambda=lambda,transform=TRUE) 
+
+gf2<-gof.lmm.std.test2.opt.lam.v2(fit6a,residuals= "cluster" ,std.type=2,use.correction.for.imbalance=FALSE,
+                                  M=M,
+                                  order.by.original=TRUE,verbose=FALSE,flip.cluster=TRUE,
+                                  use.normal=FALSE,use.mammen=FALSE,lambda=lambda,transform=TRUE) 
+
+gf3<-gof.lmm.std.test2.opt.lam.v2(fit7a,residuals= "cluster" ,std.type=2,use.correction.for.imbalance=FALSE,
+                                  M=M,
+                                  order.by.original=TRUE,verbose=FALSE,flip.cluster=TRUE,
+                                  use.normal=FALSE,use.mammen=FALSE,lambda=lambda,transform=TRUE) 
+
+
+
+summary.opt.lambda(gf1)
+plot.opt.lambda(gf1,lambda=NULL,ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+summary.opt.lambda(gf1,lambda="opt")
+plot.opt.lambda(gf1,lambda="opt",ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+
+
+
+summary.opt.lambda(gf2)
+plot.opt.lambda(gf2,lambda=NULL,ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+
+summary.opt.lambda(gf2,lambda="opt")
+plot.opt.lambda(gf2,lambda="opt",ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+
+
+
+
+summary.opt.lambda(gf3)
+plot.opt.lambda(gf3,lambda=NULL,ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+
+summary.opt.lambda(gf3,lambda="opt")
+plot.opt.lambda(gf3,lambda="opt",ts="CvM",proc=c("both"),type=2,subset.M=NULL,cex.main=0.8,display.p=TRUE,digits.p=5)
+
+
+# for inclusion into the paper
+pdf("FigureIllustrationANESrb.pdf",height=10,width=10)
+txt1<-expression(W^O)
+txt2<-expression(W^F)
+par(mfrow=c(3,2))
+pval = as.numeric(summary.opt.lambda(gf1,lambda="opt")[,1])
+plot.opt.lambda.single(gf1,lambda="opt",ts="CvM",proc="F",ylab=txt2,xlab="",main=paste0("p=",round(pval[3],4)))
+plot.opt.lambda.single(gf1,lambda="opt",ts="CvM",proc="O",ylab=txt1,xlab="",main=paste0("p=",round(pval[1],4)))
+pval = as.numeric(summary.opt.lambda(gf2,lambda="opt")[,1])
+plot.opt.lambda.single(gf2,lambda="opt",ts="CvM",proc="F",ylab=txt2,xlab="",main=paste0("p=",round(pval[3],4)))
+plot.opt.lambda.single(gf2,lambda="opt",ts="CvM",proc="O",ylab=txt1,xlab="",main=paste0("p=",round(pval[1],4)))
+pval = as.numeric(summary.opt.lambda(gf3,lambda="opt")[,1])
+plot.opt.lambda.single(gf3,lambda="opt",ts="CvM",proc="F",ylab=txt2,xlab="",main=paste0("p=",round(pval[3],4)))
+plot.opt.lambda.single(gf3,lambda="opt",ts="CvM",proc="O",ylab=txt1,xlab="",main=paste0("p=",round(pval[1],4)))
+dev.off()

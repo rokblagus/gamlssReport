@@ -1,0 +1,21 @@
+
+library(gamlssReport)
+
+load("E:\\CentileCurvesEuroNorms\\FinalAnalysis\\results\\resultsTestBHSex0DistrBCGG.Rdata")
+
+dd<-gamlssReport(mod1)
+
+
+plot(
+  dd,
+  "nage",
+  range.x=dd$range.x$mu$nage,
+  gamlss.prediction = FALSE,
+  x.transform = function(x) x^2,
+  centiles = c(10, 50, 90),
+  newdata = NULL,
+  return.object = FALSE,
+  seq.length = 1e+05
+)
+
+predict.gamlssReport(dd, newdata=data.frame(nage=sqrt(10)), gamlss.prediction = FALSE)

@@ -1,0 +1,289 @@
+
+
+setwd("E:/SAVA_AIboard")
+library(plotly) #for plotting
+library(zoo) #for smoothing
+library(tidyr)
+
+masa<-90 #ni splosno!
+
+dd<-read.table("TestData/kalibfy1_0016.txt",header=TRUE,skip=17,dec=".",sep="\t",fill=TRUE)
+
+
+#we need to find a way to crop the vid!
+#not general, start and stop are frames!
+start<-which(dd[,1]==0.5)
+  stop<-which(dd[,1]==9)
+
+dd<-dd[start:stop,]
+
+par(mfrow=c(10,4),mar=c(2,2,1,1))
+start=32
+for (ii in c(2:8,10,9,1)){
+plot(dd$Time..s.,dd[,seq(from=start+(ii-1)*3,by=1,length.out=3)][,1],type="l")
+plot(dd$Time..s.,dd[,seq(from=start+(ii-1)*3,by=1,length.out=3)][,2],type="l")
+plot(dd$Time..s.,dd[,seq(from=start+(ii-1)*3,by=1,length.out=3)][,3],type="l")
+
+if (ii==1) plot(dd$Time..s.,dd[,71],type="l") else plot(dd$Time..s.,dd[,60+ii],type="l")
+
+}
+
+
+#dd<-dd[seq(from=1,by=10,to=nrow(dd)),] #filter, probably we should avoid this!
+
+
+dd.m<-matrix(NA,ncol=4,nrow=0)
+start=32 #ni splosno!
+for (ii in 1:10){ #trenutno 10 merilnih mest
+  dd.ii<-as.matrix(dd[,seq(from=start+(ii-1)*3,by=1,length.out=3)])
+  if (ii==1) res<-dd[,71] else res<-dd[,60+ii]
+
+  dd.ii<-cbind(dd.ii,res)
+  dd.m<-rbind(dd.m,dd.ii)
+}
+
+dd.m[,1:3]<-dd.m[,1:3]/9.8/masa*100 #spremeni v kg!
+
+
+dd.f<-as.data.frame(dd.m)
+names(dd.f)<-c("x1","y1","z1","rezultanta")
+dd.f$frame<-rep(0:(nrow(dd)-1),10)
+dd.f$id<-rep(c(10,1:7,9,8),each=nrow(dd))
+
+
+#this should be coordinates for 10,1,2,...,9!
+coord_mm<-rbind( c(1280,2240),c(960,320), c(720,480), c(560,800),
+                 c(1750,1120),  c(1760,1440),
+                 c(1200,1440),c(1200,1760),
+                 c(800,1920), c(1520,1920) )/10 #tocne koordinate merilnih mest! to se bo za vsak problem spreminjalo!
+
+
+
+for (ii in 1:10){
+cordii<-cbind(rep(coord_mm[ii,1],nrow(dd)),rep(coord_mm[ii,2],nrow(dd)))
+if (ii==1) cordf<-cordii else cordf<-rbind(cordf,cordii)
+}
+cordf<-as.data.frame(cordf)
+names(cordf)<-c("x0","y0")
+
+dd.f<-cbind(dd.f,cordf)
+
+
+dd.f$x1<-dd.f$x1+dd.f$x0
+
+dd.f$y1<-dd.f$y1+dd.f$y0
+
+dd.f$rezultanta_r<-dd.f$rezultanta/max(dd.f$rezultanta)*100
+
+
+
+
+data_long_1 <- gather(dd.f, xt, x, x0,x1, factor_key=TRUE)
+data_long_2 <- gather(dd.f, yt, y, y0,y1, factor_key=TRUE)
+
+
+
+data_long<-cbind(data_long_1[,c(2:5,7:9)],data_long_2$y)
+names(data_long)[8]<-"y"
+
+
+
+fig<-plot_ly(data_long,x=~x,y=~y,split = ~id,color=~z1,frame=~frame,
+             type="scatter",mode="lines",alpha=1,colors = "Spectral",showlegend=FALSE)
+
+fig<-add_markers(fig,x=~x0,y=~y0,data=dd.f,frame = ~frame,split=~id,size=~rezultanta_r,color=~rezultanta_r,showlegend = FALSE,inherit = FALSE)
+
+fig <- fig %>%animation_opts(
+
+  frame = 50, #calculate: these are miliseconds between frames: in our case if we dont filter it should be 5
+
+  transition = 0,
+
+  redraw = FALSE
+
+)
+
+fig <- fig%>% layout(xaxis = list(range = c(-20,250)),
+           yaxis = list(range = c(-50,250)))
+
+
+htmlwidgets::saveWidget(
+  widget = fig, #the plotly object
+  file = "figs/figure_v2.html", #the path & file name
+  selfcontained = TRUE #creates a single html file
+)
+
+apply(dd[,62:71],2,sum)/sum(apply(dd[,62:71],2,sum))*100
+
+
+##old code for madeup data
+
+
+
+
+
+
+id_mm<-rep(1:6)
+coord_mm<-rbind( c(-5,-10), c(5,-9), c(-3,0), c(7,5),  c(-8,10),c(7,10)  )
+
+
+
+
+data_0<-data.frame(id=id_mm,x0=coord_mm[,1],y0=coord_mm[,2],frame=0,x1=coord_mm[,1],y1=coord_mm[,2])
+
+#make up some time series data
+
+for (frame_i in 1:300){
+  dfi<-data_0
+  dfi$x1<-dfi$x1-runif(nrow(dfi),min=-10,max=10)
+  dfi$y1<-dfi$y1-runif(nrow(dfi),min=0,max=10)
+  dfi$frame<-frame_i
+
+  if (frame_i==1) data_1<-rbind(data_0,dfi) else data_1<-rbind(data_1,dfi)
+}
+
+
+data_1$force<-sqrt((data_1$x1-data_1$x0)**2+(data_1$y1-data_1$y0)**2)
+
+#save(data_1,file="example_data.RData")
+
+#data1 could be used for ML
+
+p <- plot_ly(data_1, x = ~x0, y = ~y0, frame = ~frame, type = 'scatter', mode = 'markers')
+
+# Add lines
+p <- p %>% add_segments(x = ~x0, y = ~y0, xend = ~x1, yend = ~y1, frame = ~frame,
+                        data = data_1,
+                        line = list(color = 'blue'))
+
+# Add rectangles (as markers) at x1 and y1
+p <- p %>% add_markers(x = ~x1, y = ~y1, frame = ~frame,
+                       type = 'scatter', mode = 'markers',
+                       marker = list(symbol = 'square', size = 10, color = 'red'))
+
+# Animation options and layout
+p <- p %>% animation_opts(frame = 300, redraw = TRUE)
+p <- p %>% layout(xaxis = list(range = c(min(c(data_1$x0, data_1$x1)), max(c(data_1$x0, data_1$x1)))),
+                  yaxis = list(range = c(min(c(data_1$y0, data_1$y1)), max(c(data_1$y0, data_1$y1)))))
+
+# Show the plot
+p
+
+
+
+fig<-plot_ly(data_1[data_1$frame==100,]) %>%
+  add_markers(~x0, ~y0,size=2) %>%
+  add_annotations( x = ~x1,
+                   y = ~y1,
+                   xref = "x", yref = "y",
+                   axref = "x", ayref = "y",
+                   text = "",
+                   showarrow = T,
+                   ax = ~x0,
+                   ay = ~y0 )
+
+
+
+
+
+fig<-plot_ly(data_1,x=~x1,y=~y1,frame=~frame,type="lines") %>%
+  add_markers(~x0, ~y0,size=2,frame=~frame) %>%
+  add_annotations( x = ~x1,
+                   y = ~y1,
+                   xref = "x", yref = "y",
+                   axref = "x", ayref = "y",
+                   text = "",
+                   showarrow = T,
+                   ax = ~x0,
+                   ay = ~y0 )
+
+fig<-plot_ly(data_1[data_1$id==1,],x=~x1,y=~y1,frame=~frame,type="scatter")
+
+#needs a long format!
+
+library(tidyr)
+
+data_long_1 <- gather(data_1, xt, x, x0,x1, factor_key=TRUE)
+data_long_2 <- gather(data_1, yt, y, y0,y1, factor_key=TRUE)
+
+data_long<-cbind(data_long_1[,c(1,3,5:7)],data_long_2$y)
+names(data_long)[6]<-"y"
+fig<-plot_ly(data_long,x=~x,y=~y,split = ~id,frame=~frame,type="scatter",mode="lines")
+
+fig <- fig %>%animation_opts(
+
+  frame = 100,
+
+  transition = 0,
+
+  redraw = FALSE
+
+)
+
+data_long_1_id1<-data_long
+
+data_long_1_id1$subject_id<-1
+###add another subject
+
+data_0<-data.frame(id=id_mm,x0=coord_mm[,1],y0=coord_mm[,2],frame=0,x1=coord_mm[,1],y1=coord_mm[,2])
+
+#make up some time series data
+
+for (frame_i in 1:300){
+  dfi<-data_0
+  dfi$x1<-dfi$x1-runif(nrow(dfi),min=-10,max=10)
+  dfi$y1<-dfi$y1-runif(nrow(dfi),min=0,max=10)
+  dfi$frame<-frame_i
+
+  if (frame_i==1) data_1<-rbind(data_0,dfi) else data_1<-rbind(data_1,dfi)
+}
+data_1$force<-sqrt((data_1$x1-data_1$x0)**2+(data_1$y1-data_1$y0)**2)
+
+data_long_1 <- gather(data_1, xt, x, x0,x1, factor_key=TRUE)
+data_long_2 <- gather(data_1, yt, y, y0,y1, factor_key=TRUE)
+
+data_long<-cbind(data_long_1[,c(1,3,5:7)],data_long_2$y)
+names(data_long)[6]<-"y"
+
+data_long_1_id2<-data_long
+
+data_long_1_id2$subject_id<-2
+
+
+data_long<-rbind(data_long_1_id1,data_long_1_id2)
+
+data_long$split<-paste(data_long$id,data_long$subject_id,sep="_")
+
+
+data_long$force<-paste("f_",round(data_long$force),sep="")
+data_long$force[data_long$xt=="x0"]<-NA
+
+
+fig<-plot_ly(data_long,x=~x,y=~y,split = ~split,frame=~frame,type="scatter",mode="text+markers+lines",
+             #symbol = "arrow",
+             text=~force)
+
+fig <- fig %>%animation_opts(
+
+  frame = 500,
+
+  transition = 0,
+
+  redraw = FALSE
+
+)
+
+
+library(htmlwidgets)
+
+
+htmlwidgets::saveWidget(
+  widget = fig, #the plotly object
+  file = "figure.html", #the path & file name
+  selfcontained = TRUE #creates a single html file
+)
+
+
+
+
+
