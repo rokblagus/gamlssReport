@@ -1,0 +1,684 @@
+
+###packages
+
+library(glmmTMB)
+
+library(lme4)
+
+library(xtable)
+
+library(nlme)
+
+library(blme)
+
+library(car)
+
+library(merDeriv) #does not work on R365 wtf!
+
+
+
+###aux functions for creating PD
+
+##function to create PD for any param for any link for q>1
+
+
+make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param="precision",link_fun=function(x) 1/(1+exp(-x))){
+  if (is.null(match.arg(param,c("precision","variance")))) stop("param needs to be one of: precision,variance")
+
+  q<-ncol(psi)
+  if (param=="precision") cc<-(nu-q-1)/q
+  if (param=="variance") cc<-(nu+q+1)/q
+
+  cc<-max(c(floor(cc),1))
+  if (param=="precision") true<-solve(psi)/cc
+  if (param=="variance") true<-psi/cc
+  ee<-eigen(true,TRUE)
+  ui<-list()
+  for (j in 1:q){
+    ui[[j]]<-sqrt(ee$values[j])*ee$vectors[,j]
+  }
+
+  #u1<-sqrt(ee$values[1])*ee$vectors[,1]
+  #u2<-sqrt(ee$values[2])*ee$vectors[,2]
+
+  #matrix(u1,ncol=1)%*%matrix(u1,nrow=1)+matrix(u2,ncol=1)%*%matrix(u2,nrow=1)
+  pi<-list()
+
+  for (j in 1:length(ui)){
+    I<-diag(rep(1,length(ui[[j]])))
+    #pi[[j]]<-1/(1+exp(-I%*%matrix(ui[[j]],ncol=1)))
+    pi[[j]]<-link_fun(I%*%matrix(ui[[j]],ncol=1))
+  }
+  #pi0=exp(u1[1])/(1+exp(u1[1]))
+  #pi1=exp(u1[2])/((1-pi0)/pi0+exp(u1[2]))
+
+  #pi02=exp(u2[1])/(1+exp(u2[1]))
+  #pi12=exp(u2[2])/((1-pi02)/pi02+exp(u2[2]))
+
+
+  #Y<-c(pi0,pi1,pi02,pi12)*1e8 #the constant improves the convergence!
+  Y<-unlist(pi)
+
+  #id<-c(1,1,2,2)
+  id<-rep(1:q,each=q)
+  n<-rep(const,length(id))
+
+  Zi<-matrix(0,ncol=q,nrow=q)
+
+  for (j in 1:q){
+    Zi[j,j]<-1
+  }
+  for (j in 1:q){
+    if (j==1) Z=Zi else Z<-rbind(Z,Zi)
+  }
+
+  fact<-cc
+  if (fact>1){
+    Y<-rep(Y,fact)
+    n<-rep(n,fact)
+    id<-rep(1:(q*fact),each=q)
+    for (j in 1:(q*fact)){
+      if (j==1) Z=Zi else Z<-rbind(Z,Zi)
+    }
+  }
+
+  #M<-rep(1/q,length(Y))
+  #Z<-rbind(c(1,0),c(1,1),c(1,0),c(1,1))
+  #data0<-list(Y=Y,grouping=id,nn=n,Z=Z,M=M)
+  data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
+
+  #fit0<-glmmTMB(cbind(Y,nn-Y)~-1+(-1+Z|grouping),weights=M,data=data0,family=binomial)
+  #fit0<-glmmTMB(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  #est.vcv<-VarCorr(fit0)$cond$grouping[1:q,1:q]
+
+  list(data=data0)#,fit=fit0,vcv.re=est.vcv)
+}
+
+
+##for Poisson, q=1
+
+make_pseudo_data_rand_eigen_inter_alpha_beta<-function(alpha,beta,param="psi",const=1e8){
+  if (is.null(match.arg(param,c("psi","sigma2","logsigma2")))) stop("param needs to be one of: psi,sigma2,logsigma2")
+
+  if (param=="psi") N<-max(c(floor(2*(alpha-1)),1))
+  if (param=="sigma2") N<-max(c(floor(2*(alpha+1)),1))
+  if (param=="logsigma2") N<-max(c(floor(2*(alpha)),1))
+
+  var.int<-beta*2/N
+  fact<-N
+
+  true=matrix(var.int,ncol=1,nrow=1)
+
+  ee<-eigen(true,TRUE)
+  u1<-sqrt(ee$values[1])*ee$vectors[,1]
+  #u2<-sqrt(ee$values[2])*ee$vectors[,2]
+
+  #matrix(u1,ncol=1)%*%matrix(u1,nrow=1)+matrix(u2,ncol=1)%*%matrix(u2,nrow=1)
+
+
+  pi0=exp(u1[1])
+
+  Y<-rep(c(pi0),fact) #the constant improves the convergence!
+  n<-rep(rep(const,1),fact)
+  id<-c(1:fact)
+  Z<-matrix(rep(1,fact),ncol=1)
+  data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
+
+  #fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
+  #est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
+
+  list(data=data0)#,fit=fit0,vcv.re=est.vcv)
+}
+
+
+optimwrap <- function(fn,par,lower,upper,control=list(),
+                      ...) {
+  if (is.null(control$method)) stop("must specify method in optCtrl")
+  method <- control$method
+  control$method <- NULL
+  ## "Brent" requires finite upper values (lower bound will always
+  ##  be zero in this case)
+  if (method=="Brent") upper <- pmin(1e4,upper)
+  res <- optim(par=par, fn=fn, lower=lower,upper=upper,
+               control=control,method=method,...)
+  with(res, list(par  = par,
+                 fval = value,
+                 feval= counts[1],
+                 conv = convergence,
+                 message = message))
+}
+
+
+optimwrap2 <- function(fn,par,lower,upper,control=list(),
+                       hessian=TRUE,...) {
+  if (is.null(control$method)) stop("must specify method in optCtrl")
+  method <- control$method
+  control$method <- NULL
+  ## "Brent" requires finite upper values (lower bound will always
+  ##  be zero in this case)
+  if (method=="Brent") upper <- pmin(1e4,upper)
+  res <- optim(par=par, fn=fn, lower=lower,upper=upper,
+               control=control,method=method,hessian=hessian,...)
+  with(res, list(par  = par,
+                 fval = value,
+                 feval= counts[1],
+                 conv = convergence,
+                 message = message))
+}
+
+my_s_delta<-function(x,digits=2){
+  paste(round(x[1],digits)," (",round(x[2],digits),")",sep="")
+}
+
+
+
+#########################
+
+#########################
+
+####poisson example
+
+
+grouseticks$HEIGHT_C<-grouseticks$HEIGHT-mean(grouseticks$HEIGHT)
+
+fit_glmer <- glmer(TICKS~YEAR+HEIGHT_C+(1|BROOD)+(1|INDEX)+(YEAR|LOCATION), family="poisson",data=grouseticks)
+fit_bglmer <- bglmer(TICKS~YEAR+HEIGHT_C+(1|BROOD)+(1|INDEX)+(YEAR|LOCATION), family="poisson",data=grouseticks)
+
+
+X<-model.matrix(TICKS~YEAR+HEIGHT_C,data=grouseticks)
+#X<-model.matrix(TICKS~1,data=grouseticks)
+
+Z1<-model.matrix(~1,data=grouseticks)
+Z2<-model.matrix(~1,data=grouseticks)
+Z3<-model.matrix(~YEAR,data=grouseticks)
+Y<-grouseticks$TICKS
+grouping1<-as.numeric(grouseticks$BROOD)
+grouping2<-as.numeric(grouseticks$INDEX)
+grouping3<-as.numeric(grouseticks$LOCATION)
+
+xdf<-list(Y=Y,X=X,Z2=Z1,Z1=Z2,Z3=Z3,grouping2=grouping1,grouping1=grouping2,grouping3=grouping3)
+#xdf_glmer<-list(Y=Y,X=X,Z_1=Z1,Z_2=Z2,Z_3=Z3,grouping_1=grouping1,grouping_2=grouping2,grouping_3=grouping3)
+
+#fit<-glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),data=xdf,family=poisson)
+
+#fit_tmb<-glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),data=xdf,family=poisson)
+
+##think about this and set appropriately!
+
+
+d=3
+a1<-d/2
+a2<-log(2)**2*d/2/(qt(0.975,df=d))**2
+
+pd1<-make_pseudo_data_rand_eigen_inter_alpha_beta(alpha=a1,beta=a2,param="psi",const=1e8)
+
+
+nu=7
+q<-3
+d<-nu-q+1
+tt<-qt(0.975,df=d)
+
+ss<-tt**2/(d*log(2)**2)
+psi<-(rbind(c(1/ss,0,0),c(0,1/ss,0),c(0,0,1/ss)))
+
+
+pd2<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun=function(x) exp(x))
+
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(X),nrow=nrow(pd2$data$Z)))
+Z1a<-rbind(Z1,pd1$data$Z,matrix(0,ncol=ncol(Z1),nrow=nrow(pd2$data$Z)))
+Z2a<-rbind(Z2,matrix(0,ncol=ncol(Z2),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(Z2),nrow=nrow(pd2$data$Z)))
+Z3a<-rbind(Z3,matrix(0,ncol=ncol(Z3),nrow=nrow(pd1$data$Z)),pd2$data$Z)
+
+Ya<-c(Y,pd1$data$Y,pd2$data$Y)
+weightsa<-c(rep(1,length(Y)),pd1$data$nn,pd2$data$nn)
+
+
+grouping1a<-c(grouping1,max(grouping1)+pd1$data$grouping,max(max(grouping1)+pd1$data$grouping)+pd2$data$grouping)
+grouping2a<-c(grouping2,max(grouping2)+pd1$data$grouping,max(max(grouping2)+pd1$data$grouping)+pd2$data$grouping)
+grouping3a<-c(grouping3,max(grouping3)+pd1$data$grouping,max(max(grouping3)+pd1$data$grouping)+pd2$data$grouping)
+
+Ya2<-floor(Ya*weightsa)
+offset<-log(weightsa)
+
+
+xdfa<-list(Y=Ya2,ofset=offset,X=Xa,Z2=Z1a,Z1=Z2a,Z3=Z3a,grouping2=grouping1a,grouping1=grouping2a,grouping3=grouping3a)
+
+
+
+#tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
+ #               offset=ofset,
+  #              data=xdfa)
+
+tmp3 <- glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
+                offset=ofset,
+                data=xdfa)
+
+
+res.glmer.cf<-fit_glmer@optinfo$val
+h<-fit_glmer@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+
+res.glmer.se<-sqrt(diag(v))
+
+res.glmer<-paste(round(res.glmer.cf,3),paste(" (",round(res.glmer.se,3),")",sep=""),se="")
+
+res.bglmer.cf<-fit_bglmer@optinfo$val
+h<-fit_bglmer@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+
+res.bglmer.se<-sqrt(diag(v))
+res.bglmer<-paste(round(res.bglmer.cf,3),paste(" (",round(res.bglmer.se,3),")",sep=""),se="")
+
+
+res.pglmer.cf<-tmp3@optinfo$val
+h<-tmp3@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+
+res.pglmer.se<-sqrt(diag(v))
+
+res.pglmer<-paste(round(res.pglmer.cf,3),paste(" (",round(res.pglmer.se,3),")",sep=""),se="")
+
+res<-cbind(res.glmer,res.bglmer,res.pglmer)
+res2<-res[c(9:12,1:8),]
+
+
+##use delta method to get ses on the desired scale
+
+
+
+#pml
+th<-tmp3@optinfo$val[3:8]
+h<-tmp3@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+v<-v[3:8,3:8]
+names(th)<-colnames(v)<-rownames(v)<-paste0("theta",1:6)
+
+
+
+s11<-deltaMethod(th,"sqrt(theta1*theta1)",v)
+r12<-deltaMethod(th,"(theta1*theta2)/sqrt(theta1**2*(theta2**2+theta4**2)  )   ",v)
+r13<-deltaMethod(th,"(theta1*theta3)/sqrt(theta1**2*(theta3**2+theta5**2+theta6**2)  )   ",v)
+s22<-deltaMethod(th,"sqrt(theta2**2+theta4**2)",v)
+s33<-deltaMethod(th,"sqrt(theta3**2+theta5**2+theta6**2)",v)
+
+r23<-deltaMethod(th,"(theta2*theta3+theta4*theta5)/sqrt((theta2**2+theta4**2)*(theta3**2+theta5**2+theta6**2)  )   ",v)
+
+res.s3.pml<-c(
+paste0(round(s11[1],3), " (",round(s11[2],3),")"   ),
+paste0(round(s22[1],3), " (",round(s22[2],3),")"   ),
+paste0(round(s33[1],3), " (",round(s33[2],3),")"   ),
+paste0(round(r12[1],3), " (",round(r12[2],3),")"   ),
+paste0(round(r13[1],3), " (",round(r13[2],3),")"   ),
+paste0(round(r23[1],3), " (",round(r23[2],3),")"   )
+)
+
+#ml
+th<-fit_glmer@optinfo$val[3:8]
+h<-fit_glmer@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+v<-v[3:8,3:8]
+names(th)<-colnames(v)<-rownames(v)<-paste0("theta",1:6)
+
+
+
+s11<-deltaMethod(th,"sqrt(theta1*theta1)",v)
+r12<-deltaMethod(th,"(theta1*theta2)/sqrt(theta1**2*(theta2**2+theta4**2)  )   ",v)
+r13<-deltaMethod(th,"(theta1*theta3)/sqrt(theta1**2*(theta3**2+theta5**2+theta6**2)  )   ",v)
+s22<-deltaMethod(th,"sqrt(theta2**2+theta4**2)",v)
+s33<-deltaMethod(th,"sqrt(theta3**2+theta5**2+theta6**2)",v)
+
+r23<-deltaMethod(th,"(theta2*theta3+theta4*theta5)/sqrt((theta2**2+theta4**2)*(theta3**2+theta5**2+theta6**2)  )   ",v)
+
+res.s3.ml<-c(
+  paste0(round(s11[1],3), " (",round(s11[2],3),")"   ),
+  paste0(round(s22[1],3), " (",round(s22[2],3),")"   ),
+  paste0(round(s33[1],3), " (",round(s33[2],3),")"   ),
+  paste0(round(r12[1],3), " (",round(r12[2],3),")"   ),
+  paste0(round(r13[1],3), " (",round(r13[2],3),")"   ),
+  paste0(round(r23[1],3), " (",round(r23[2],3),")"   )
+)
+
+#bml
+th<-fit_bglmer@optinfo$val[3:8]
+h<-fit_bglmer@optinfo$derivs$Hessian
+h<-solve(h)
+v<-forceSymmetric(h+t(h))
+v<-v[3:8,3:8]
+names(th)<-colnames(v)<-rownames(v)<-paste0("theta",1:6)
+
+
+
+s11<-deltaMethod(th,"sqrt(theta1*theta1)",v)
+r12<-deltaMethod(th,"(theta1*theta2)/sqrt(theta1**2*(theta2**2+theta4**2)  )   ",v)
+r13<-deltaMethod(th,"(theta1*theta3)/sqrt(theta1**2*(theta3**2+theta5**2+theta6**2)  )   ",v)
+s22<-deltaMethod(th,"sqrt(theta2**2+theta4**2)",v)
+s33<-deltaMethod(th,"sqrt(theta3**2+theta5**2+theta6**2)",v)
+
+r23<-deltaMethod(th,"(theta2*theta3+theta4*theta5)/sqrt((theta2**2+theta4**2)*(theta3**2+theta5**2+theta6**2)  )   ",v)
+
+res.s3.bml<-c(
+  paste0(round(s11[1],3), " (",round(s11[2],3),")"   ),
+  paste0(round(s22[1],3), " (",round(s22[2],3),")"   ),
+  paste0(round(s33[1],3), " (",round(s33[2],3),")"   ),
+  paste0(round(r12[1],3), " (",round(r12[2],3),")"   ),
+  paste0(round(r13[1],3), " (",round(r13[2],3),")"   ),
+  paste0(round(r23[1],3), " (",round(r23[2],3),")"   )
+)
+
+res2[7:12,]<-cbind(res.s3.ml,res.s3.bml,res.s3.pml)
+res2<-res2[,c(1,3,2)]
+
+resx<-xtable(res2)
+
+
+
+
+######################
+
+######################
+
+
+####linear example: use aids data with log transformed Y; for gamma we can use the same?
+
+
+data(aids, package = "JM")
+aids$CD4[aids$CD4==0]<-1e-8
+
+aids$CD4<-log(aids$CD4)
+
+
+
+
+
+#d2222$data$Y3<-d2222$data$Y*d2222$data$Y
+#d2222$data$ofset3<-(1-d2222$data$Y)/d2222$data$Y^2
+
+Y<-aids$CD4
+X<-model.matrix(CD4~gender+prevOI+AZT+obstime + drug + obstime:drug,data=aids)
+Z<-model.matrix(CD4~1 + obstime,data=aids)
+grouping<-as.numeric(as.factor(aids$patient))
+
+xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
+
+fit_glmer<-lmer(Y~X-1 +
+                 (Z-1 | grouping), data = xdf,REML=FALSE)
+
+fit_bglmer<-blmer(Y~X-1 +
+                  (Z-1 | grouping), data = xdf)
+
+nu=4
+q<-2
+d<-nu-q+1
+tt<-qt(0.975,df=d)
+
+ss1<-tt**2/(d*0.5**2)
+ss2<-tt**2/(d*10**2)
+rho<-0
+ss<-rho*sqrt(ss1*ss2)
+
+psi<-solve(rbind(c(ss1,ss),c(ss,ss2)))
+
+
+d2222<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun = function(x) x )
+
+
+
+Ya<-c(Y,d2222$data$Y)
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(d2222$data$Z)))
+Za<-rbind(Z,d2222$data$Z)
+groupa<-c(grouping,max(grouping)+d2222$data$grouping)
+#ofset<-c(rep(0,length(Y)),d2222$data$ofset3) #note a zero for the ofset for orig obs!
+weights<-c(rep(1,length(Y)),d2222$data$nn)
+
+xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupa,weights=weights)
+
+fit_aug<-lmer(Y~-1+X+(-1+Z|grouping),weights = weights,data=xdfa,REML=FALSE)
+
+
+###
+
+#glmer
+mod<-fit_glmer
+vv <- vcov(mod, full = TRUE)
+
+#fixef
+
+fixf<-paste(round(fixef(mod),3)," (", round(sqrt(diag(vv))[1:7],3),")",sep="")
+
+#ranef
+
+vr<-c(VarCorr(mod)$grouping)[-2]
+
+
+vrv<-vv[8:10,8:10]
+
+names(vr)<-colnames(vrv)<-rownames(vrv)<-c("sigma11","sigma12","sigma22")
+
+s11<-deltaMethod(vr,"sqrt(sigma11)",vrv)
+s22<-deltaMethod(vr,"sqrt(sigma22)",vrv)
+r1<-deltaMethod(vr,"sigma12/sqrt(sigma11*sigma22)",vrv)
+
+rnf<-c(paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")"),
+       paste0(round(s22$Estimate,3)," (",round(s22$SE,3),")"),
+       paste0(round(r1$Estimate,3)," (",round(r1$SE,3),")")
+)
+
+
+#residual
+
+st<-summary(mod)$sigma**2
+vst<-vv[11,11]
+names(st)<-names(vst)<-"sigma1"
+
+s11<-deltaMethod(st,"sqrt(sigma1)",vst)
+
+rs<-paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")")
+
+resi<-c(fixf,rnf,rs)
+
+res_glmer<-resi
+
+#bglmer
+mod<-fit_bglmer
+vv <- vcov(mod, full = TRUE)
+
+#fixef
+
+fixf<-paste(round(fixef(mod),3)," (", round(sqrt(diag(vv))[1:7],3),")",sep="")
+
+#ranef
+
+vr<-c(VarCorr(mod)$grouping)[-2]
+
+
+vrv<-vv[8:10,8:10]
+
+names(vr)<-colnames(vrv)<-rownames(vrv)<-c("sigma11","sigma12","sigma22")
+
+s11<-deltaMethod(vr,"sqrt(sigma11)",vrv)
+s22<-deltaMethod(vr,"sqrt(sigma22)",vrv)
+r1<-deltaMethod(vr,"sigma12/sqrt(sigma11*sigma22)",vrv)
+
+rnf<-c(paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")"),
+       paste0(round(s22$Estimate,3)," (",round(s22$SE,3),")"),
+       paste0(round(r1$Estimate,3)," (",round(r1$SE,3),")")
+)
+
+
+#residual
+
+st<-summary(mod)$sigma**2
+vst<-vv[11,11]
+names(st)<-names(vst)<-"sigma1"
+
+s11<-deltaMethod(st,"sqrt(sigma1)",vst)
+
+rs<-paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")")
+
+resi<-c(fixf,rnf,rs)
+
+res_bglmer<-resi
+
+
+
+#plmer
+mod<-fit_aug
+vv <- vcov(mod, full = TRUE)
+
+#fixef
+
+fixf<-paste(round(fixef(mod),3)," (", round(sqrt(diag(vv))[1:7],3),")",sep="")
+
+#ranef
+
+vr<-c(VarCorr(mod)$grouping)[-2]
+
+
+vrv<-vv[8:10,8:10]
+
+names(vr)<-colnames(vrv)<-rownames(vrv)<-c("sigma11","sigma12","sigma22")
+
+s11<-deltaMethod(vr,"sqrt(sigma11)",vrv)
+s22<-deltaMethod(vr,"sqrt(sigma22)",vrv)
+r1<-deltaMethod(vr,"sigma12/sqrt(sigma11*sigma22)",vrv)
+
+rnf<-c(paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")"),
+       paste0(round(s22$Estimate,3)," (",round(s22$SE,3),")"),
+       paste0(round(r1$Estimate,3)," (",round(r1$SE,3),")")
+)
+
+
+#residual
+
+st<-summary(mod)$sigma**2
+vst<-vv[11,11]
+names(st)<-names(vst)<-"sigma1"
+
+s11<-deltaMethod(st,"sqrt(sigma1)",vst)
+
+rs<-paste0(round(s11$Estimate,3)," (",round(s11$SE,3),")")
+
+resi<-c(fixf,rnf,rs)
+
+res_plmer<-resi
+
+
+##
+
+res<-cbind(res_glmer,res_plmer,res_bglmer)
+colnames(res)<-c("ML","pML","bglmer")
+
+resx<-xtable(res)
+
+
+
+
+
+
+######################
+
+######################
+
+
+####gamma example: use aids data
+
+
+data(aids, package = "JM")
+aids$CD4[aids$CD4==0]<-1e-8
+
+
+
+
+
+
+#d2222$data$Y3<-d2222$data$Y*d2222$data$Y
+#d2222$data$ofset3<-(1-d2222$data$Y)/d2222$data$Y^2
+
+Y<-aids$CD4
+X<-model.matrix(CD4~gender+prevOI+AZT+obstime + drug + obstime:drug,data=aids)
+Z<-model.matrix(CD4~1 + obstime,data=aids)
+grouping<-as.numeric(as.factor(aids$patient))
+
+xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
+
+fit_glmer<-glmer(Y~X-1 +
+                  (Z-1 | grouping), data = xdf,family=Gamma(link="log"),control=glmerControl(optimizer="Nelder_Mead",tolPwrss =1e-5))
+
+fit_bglmer<-bglmer(Y~X-1 +
+                    (Z-1 | grouping), data = xdf,family=Gamma(link="log"))
+
+nu=4
+q<-2
+d<-nu-q+1
+tt<-qt(0.975,df=d)
+
+ss1<-tt**2/(d*log(10)**2)
+ss2<-tt**2/(d*log(100)**2)
+rho<-0
+ss<-rho*sqrt(ss1*ss2)
+
+psi<-solve(rbind(c(ss1,ss),c(ss,ss2)))
+
+
+d2222<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun = function(x) exp(x) )
+
+
+
+Ya<-c(Y,d2222$data$Y)
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(d2222$data$Z)))
+Za<-rbind(Z,d2222$data$Z)
+groupa<-c(grouping,max(grouping)+d2222$data$grouping)
+#ofset<-c(rep(0,length(Y)),d2222$data$ofset3) #note a zero for the ofset for orig obs!
+weights<-c(rep(1,length(Y)),d2222$data$nn)
+
+xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupa,weights=weights)
+
+fit_aug<-glmmTMB(Y~-1+X+(-1+Z|grouping),data=xdfa,family=Gamma(link="log"), doFit=FALSE)
+#doesnt work with weights! but this seems to work (note +log and not -log as in Tinas code)
+fit_aug$data.tmb$doffset <- log(xdfa$weights)
+fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
+
+theta.start<-c(chol(VarCorr(fit_aug2)$cond$grouping))[-2]
+
+fit_aug<-glmer(Y~-1+X+(-1+Z|grouping),weights = weights,data=xdfa,family=Gamma(link="inverse"),start=list(fixef=fixef(fit_aug2)$cond,theta=theta.start),
+               control=glmerControl(tolPwrss =1e-5,nAGQ0initStep =FALSE))
+
+
+d2222<-make_pseudo_data_rand_eigen_general_psi_v3_glmm(psi,nu=nu,const=1e8,param="precision",link_fun = function(x) 1/x )
+
+d2222$data$Y3<-d2222$data$Y*d2222$data$Y
+d2222$data$ofset3<-(1-d2222$data$Y)/d2222$data$Y^2
+
+Y<-aids$CD4
+X<-model.matrix(CD4~gender+prevOI+AZT+obstime + drug + obstime:drug,data=aids)
+Z<-model.matrix(CD4~1 + obstime,data=aids)
+grouping<-as.numeric(as.factor(aids$patient))
+
+ 
+
+Ya<-c(Y,d2222$data$Y3)
+Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(d2222$data$Z)))
+Za<-rbind(Z,d2222$data$Z)
+groupa<-c(grouping,max(grouping)+d2222$data$grouping)
+ofset<-c(rep(0,length(Y)),d2222$data$ofset3) #note a zero for the ofset for orig obs!
+weights<-c(rep(1,length(Y)),d2222$data$nn)
+
+xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupa,ofset=ofset,weights=weights)
+
+
+fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(link="inverse"), doFit=FALSE)
+
+#doesnt work with weights! but this seems to work (note +log and not -log as in Tinas code)
+fit_aug$data.tmb$doffset <- log(xdfa$weights)
+fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
+#should be the same as
+fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(link="inverse"),
+                 dispformula = ~offset(log(weights)),
+                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)),
+                 start=list(beta=fit.tmb$sdr$par.fixed[1:4],betad=fit.tmb$sdr$par.fixed[5],theta=fit.tmb$sdr$par.fixed[6:8]))
+

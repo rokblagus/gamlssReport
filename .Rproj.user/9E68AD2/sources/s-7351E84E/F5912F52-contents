@@ -1,0 +1,7 @@
+
+dd<-read.csv2("C:\\Users\\rblagus\\Documents\\exampleData\\MathEdataset.csv")
+
+
+fit<-glmer(Type.of.Answer~Question.Level+Topic+(Question.Level|Student.ID/Student.Country),family=binomial(link="logit"),data=dd)
+
+table(dd$Question.Level[dd$Student.Country=="Slovenia"],dd$Student.ID[dd$Student.Country=="Slovenia"])

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1721999757999.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "B279006C",
+    "lastKnownWriteTime" : 1672216653,
+    "last_content_update" : 1672216653,
+    "path" : "C:/Users/rblagus/MF Uni LJ Dropbox/Rok Blagus/gofLinearMixedModel/package/gofLMM/R/functions_gofLMM.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "59,0",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 7,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

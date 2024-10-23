@@ -1,8 +1,0 @@
-exportPattern("^[[:alpha:]]+")
-import(gamlss,shiny,bslib)
-importFrom("graphics", "legend", "lines")
-importFrom("stats", "as.formula", "model.matrix", "family","spline")
-importFrom("gamlss.dist","make.link.gamlss")
-S3method(print, gamlssReport)
-S3method(plot, gamlssReport)
-S3method(predict, gamlssReport)

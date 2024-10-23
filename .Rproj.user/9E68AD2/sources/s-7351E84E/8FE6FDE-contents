@@ -1,0 +1,2084 @@
+
+
+###required packages
+
+
+my.sig<-function(x,lambda,tau){1/(1+exp(-lambda*(x-tau)))}
+my.sig.der<-function(x,lambda,tau){-my.sig(x,lambda,tau)*(1-my.sig(x,lambda,tau))*lambda}
+
+
+segmented.default.rok<-function (obj, seg.Z, psi, npsi, fixed.psi = NULL, control = seg.control(), 
+                                 model = TRUE, keep.class = FALSE,lambda, ...) 
+{
+  build.all.psi <- function(psi, fixed.psi) {
+    all.names.psi <- union(names(psi), names(fixed.psi))
+    all.psi <- vector("list", length = length(all.names.psi))
+    names(all.psi) <- all.names.psi
+    for (i in names(all.psi)) {
+      if (!is.null(psi[[i]])) {
+        psi[[i]] <- sort(psi[[i]])
+        names(psi[[i]]) <- paste("U", 1:length(psi[[i]]), 
+                                 ".", i, sep = "")
+      }
+      if (!is.null(fixed.psi[[i]])) {
+        fixed.psi[[i]] <- sort(fixed.psi[[i]])
+        names(fixed.psi[[i]]) <- paste("U", 1:length(fixed.psi[[i]]), 
+                                       ".fixed.", i, sep = "")
+      }
+      all.psi[[i]] <- sort(c(psi[[i]], fixed.psi[[i]]))
+    }
+    return(all.psi)
+  }
+  update.formula1 <- function(old, new, ..., opt = 1) {
+    if ("|" %in% all.names(old)) {
+      nomeY <- all.vars(old)[1]
+      nomiX <- strsplit(as.character(old)[3], "\\|")[[1]][1]
+      nomiX.disp <- strsplit(as.character(old)[3], "\\|")[[1]][2]
+      if (opt == 2) {
+        nomiX.all <- paste(nomiX, nomiX.disp, sep = "+")
+        Fo.charac <- paste(nomeY, nomiX.all, sep = "~")
+        Fo <- as.formula(Fo.charac)
+      }
+      else {
+        Fo.charac <- paste(nomeY, nomiX, sep = "~")
+        Fo <- as.formula(paste(Fo.charac, nomiX.disp, 
+                               sep = "|"))
+      }
+      return(Fo)
+    }
+    else {
+      update.formula(old, new, ...)
+    }
+  }
+  dpmax <- function(x, y, pow = 1,lambda) {
+    if (pow == 1) 
+      # -(x > y)
+      my.sig.der(x,lambda,y)*(x-y)-my.sig(x,lambda,y)
+    else #-pow * ((x - y) * (x > y))^(pow - 1)
+      pow * (my.sig.der(x,lambda,y)*(x-y)-my.sig(x,lambda,y))^(pow - 1)
+  }
+  if (is.null(control$fn.obj)) 
+    fn.obj <- "-as.numeric(logLik(x))"
+  else fn.obj <- control$fn.obj
+  if (missing(seg.Z)) {
+    if (length(all.vars(formula(obj))) == 2) 
+      seg.Z <- as.formula(paste("~", all.vars(formula(obj))[2]))
+    else stop("please specify 'seg.Z'")
+  }
+  if ("V" %in% sub("V[1-9]*[0-9]", "V", c(all.vars(seg.Z), 
+                                          all.vars(formula(obj))[-1]))) 
+    stop("variable names 'V', 'V1', .. are not allowed")
+  if ("U" %in% sub("U[1-9]*[0-9]", "U", c(all.vars(seg.Z), 
+                                          all.vars(formula(obj))[-1]))) 
+    stop("variable names 'U', 'U1', .. are not allowed")
+  if (any(c("$", "[") %in% all.names(seg.Z))) 
+    stop(" '$' or '[' not allowed in 'seg.Z' ")
+  n.Seg <- length(all.vars(seg.Z))
+  id.npsi <- FALSE
+  if (missing(psi)) {
+    if (n.Seg == 1) {
+      if (missing(npsi)) 
+        npsi <- 1
+      npsi <- lapply(npsi, function(.x) .x)
+      if (length(npsi) != length(all.vars(seg.Z))) 
+        stop("seg.Z and npsi do not match")
+      names(npsi) <- all.vars(seg.Z)
+    }
+    else {
+      if (missing(npsi)) {
+        npsi <- rep(1, n.Seg)
+        names(npsi) <- all.vars(seg.Z)
+      }
+      if (length(npsi) != n.Seg) 
+        stop(" 'npsi' and seg.Z should have the same length")
+      if (!all(names(npsi) %in% all.vars(seg.Z))) 
+        stop(" names in 'npsi' and 'seg.Z' do not match")
+    }
+    psi <- lapply(npsi, function(.x) rep(NA, .x))
+    id.npsi <- TRUE
+  }
+  else {
+    if (n.Seg == 1) {
+      if (!is.list(psi)) {
+        psi <- list(psi)
+        names(psi) <- all.vars(seg.Z)
+      }
+    }
+    else {
+      if (!is.list(psi)) 
+        stop("with multiple terms in `seg.Z', `psi' should be a named list")
+      if (n.Seg != length(psi)) 
+        stop("A wrong number of terms in `seg.Z' or `psi'")
+      if (!all(names(psi) %in% all.vars(seg.Z))) 
+        stop("Names in `seg.Z' and `psi' do not match")
+    }
+  }
+  fc <- min(max(abs(control$fc), 0.8), 1)
+  min.step <- control$min.step
+  alpha <- control$alpha
+  it.max <- old.it.max <- control$it.max
+  digits <- control$digits
+  toll <- control$toll
+  if (toll < 0) 
+    stop("Negative tolerance ('tol' in seg.control()) is meaningless", 
+         call. = FALSE)
+  visual <- control$visual
+  stop.if.error <- fix.npsi <- control$fix.npsi
+  break.boot = control$break.boot
+  n.boot <- control$n.boot
+  size.boot <- control$size.boot
+  gap <- control$gap
+  random <- control$random
+  pow <- control$pow
+  conv.psi <- control$conv.psi
+  visualBoot <- FALSE
+  if (n.boot > 0) {
+    if (!is.null(control$seed)) {
+      set.seed(control$seed)
+      employed.Random.seed <- control$seed
+    }
+    else {
+      employed.Random.seed <- eval(parse(text = paste(sample(0:9, 
+                                                             size = 6), collapse = "")))
+      set.seed(employed.Random.seed)
+    }
+    if (visual) {
+      visual <- FALSE
+      visualBoot <- TRUE
+    }
+    if (!stop.if.error) 
+      stop("Bootstrap restart only with a fixed number of breakpoints")
+  }
+  last <- control$last
+  K <- control$K
+  h <- control$h
+  orig.call <- Call <- mf <- obj$call
+  orig.call$formula <- mf$formula <- formula(obj)
+  m <- match(c("formula", "data", "subset", 
+               "weights", "na.action", "offset"), 
+             names(mf), 0L)
+  mf <- mf[c(1, m)]
+  mf$drop.unused.levels <- TRUE
+  mf[[1L]] <- as.name("model.frame")
+  if (class(mf$formula)[1] == "name" && !"~" %in% 
+      paste(mf$formula)) 
+    mf$formula <- eval(mf$formula)
+  mf$formula <- update.formula1(mf$formula, paste(seg.Z, collapse = ".+"), 
+                                opt = 2)
+  mfExt <- mf
+  if (!is.null(obj$call$offset) || !is.null(obj$call$weights) || 
+      !is.null(obj$call$subset) || !is.null(obj$call$id)) {
+    mfExt$formula <- update.formula(mf$formula, paste(".~.+", 
+                                                      paste(c(all.vars(obj$call$offset), all.vars(obj$call$weights), 
+                                                              all.vars(obj$call$subset), all.vars(obj$call$id)), 
+                                                            collapse = "+")))
+  }
+  if (!is.null(obj$call$random)) 
+    mfExt$formula <- update.formula(mf$formula, paste(".~.+", 
+                                                      paste(all.vars(obj$call$random), collapse = "+")))
+  mf <- eval(mf, parent.frame())
+  n <- nrow(mf)
+  nomiOff <- setdiff(all.vars(formula(obj)), names(mf))
+  if (length(nomiOff) >= 1) 
+    mfExt$formula <- update.formula(mfExt$formula, paste(".~.+", 
+                                                         paste(nomiOff, collapse = "+"), sep = ""))
+  nomiTUTTI <- all.vars(mfExt$formula)
+  nomiNO <- NULL
+  for (i in nomiTUTTI) {
+    r <- try(eval(parse(text = i), parent.frame()), silent = TRUE)
+    if (class(r)[1] != "try-error" && length(r) == 
+        1 && !is.function(r) && !i %in% names(mf)) 
+      nomiNO[[length(nomiNO) + 1]] <- i
+  }
+  if (!is.null(nomiNO)) 
+    mfExt$formula <- update.formula(mfExt$formula, paste(".~.-", 
+                                                         paste(nomiNO, collapse = "-"), sep = ""))
+  mfExt <- eval(mfExt, parent.frame())
+  if (inherits(obj, "coxph")) {
+    is.Surv <- NA
+    rm(is.Surv)
+    for (i in 1:ncol(mfExt)) {
+      if (is.Surv(mfExt[, i])) 
+        aa <- mfExt[, i][, 1:ncol(mfExt[, i])]
+    }
+    mfExt <- cbind(aa, mfExt)
+  }
+  id.seg <- match(all.vars(seg.Z), names(mfExt))
+  name.Z <- names(mfExt)[id.seg]
+  Z <- mfExt[, id.seg, drop = FALSE]
+  n.psi <- length(unlist(psi))
+  if (ncol(Z) == 1 && is.vector(psi) && (is.numeric(psi) || 
+                                         is.na(psi))) {
+    psi <- list(as.numeric(psi))
+    names(psi) <- name.Z
+  }
+  id.psi <- match(colnames(Z), names(psi))
+  if ((ncol(Z) != length(psi)) || any(is.na(id.seg))) 
+    stop("Length or names of Z and psi do not match")
+  if (id.npsi) {
+    for (i in 1:length(psi)) {
+      K <- length(psi[[i]])
+      if (any(is.na(psi[[i]]))) 
+        psi[[i]] <- if (control$quant) {
+          quantile(Z[, i], prob = seq(0, 1, l = K + 2)[-c(1, 
+                                                          K + 2)], names = FALSE)
+        }
+      else {
+        (min(Z[, i]) + diff(range(Z[, i])) * (1:K)/(K + 
+                                                      1))
+      }
+    }
+  }
+  else {
+    for (i in 1:length(psi)) {
+      if (any(is.na(psi[[i]]))) 
+        psi[[i]] <- if (control$quant) {
+          quantile(Z[, i], prob = seq(0, 1, l = K + 2)[-c(1, 
+                                                          K + 2)], names = FALSE)
+        }
+      else {
+        (min(Z[, i]) + diff(range(Z[, i])) * (1:K)/(K + 
+                                                      1))
+      }
+    }
+  }
+  id.psi.fixed <- FALSE
+  if (!is.null(fixed.psi)) {
+    id.psi.fixed <- TRUE
+    if (is.numeric(fixed.psi) && n.Seg == 1) {
+      fixed.psi <- list(fixed.psi)
+      names(fixed.psi) <- all.vars(seg.Z)
+    }
+    if (is.list(fixed.psi)) {
+      if (!(names(fixed.psi) %in% all.vars(seg.Z))) 
+        stop("names(fixed.psi) is not a subset of variables in 'seg.Z' ")
+    }
+    else {
+      stop(" 'fixed.psi' has to be a named list ")
+    }
+    fixed.psi <- lapply(fixed.psi, sort)
+    Zfixed <- matrix(unlist(mapply(function(x, y) rep(x, 
+                                                      y), Z[names(fixed.psi)], sapply(fixed.psi, length), 
+                                   SIMPLIFY = TRUE)), nrow = n)
+    n.fixed.psi <- sapply(fixed.psi, length)
+    rip.nomi <- rep(names(fixed.psi), n.fixed.psi)
+    rip.numeri <- unlist(lapply(n.fixed.psi, function(.x) 1:.x))
+    colnames(Zfixed) <- paste("U", rip.numeri, ".fixed.", 
+                              rip.nomi, sep = "")
+    PSI <- matrix(unlist(fixed.psi), ncol = ncol(Zfixed), 
+                  nrow = n, byrow = TRUE)
+    #fixedU <- (Zfixed - PSI) * (Zfixed > PSI)
+    fixedU <-my.sig(Zfixed,lambda,PSI)*(Zfixed - PSI)
+  }
+  initial.psi <- psi
+  a <- sapply(psi, length)
+  id.psi.group <- rep(1:length(a), times = a)
+  Z <- matrix(unlist(mapply(function(x, y) rep(x, y), Z, a, 
+                            SIMPLIFY = TRUE)), nrow = n)
+  colnames(Z) <- nomiZ.vett <- rep(name.Z, times = a)
+  psi <- unlist(psi)
+  psi <- unlist(tapply(psi, id.psi.group, sort))
+  k <- ncol(Z)
+  PSI <- matrix(rep(psi, rep(n, k)), ncol = k)
+  c1 <- apply((Z <= PSI), 2, all)
+  c2 <- apply((Z >= PSI), 2, all)
+  if (sum(c1 + c2) != 0 || is.na(sum(c1 + c2))) 
+    stop("starting psi out of the admissible range")
+  ripetizioni <- as.vector(unlist(tapply(id.psi.group, id.psi.group, 
+                                         function(x) 1:length(x))))
+  nomiU <- paste("U", ripetizioni, sep = "")
+  nomiU <- paste(nomiU, nomiZ.vett, sep = ".")
+  nomiV <- paste("V", ripetizioni, sep = "")
+  nomiV <- paste(nomiV, nomiZ.vett, sep = ".")
+  nnomi <- c(nomiU, nomiV)
+  #U <- (Z - PSI) * (Z > PSI)
+  U <- (Z - PSI) * my.sig(Z,lambda,PSI)
+  if (pow[1] != 1) 
+    U <- U^pow[1]
+  colnames(U) <- nomiU
+  #V <- -(Z > PSI)
+  V<-my.sig.der(Z,lambda,PSI)*(Z-PSI)-my.sig(Z,lambda,PSI)
+  for (i in 1:k) {
+    mfExt[nomiU[i]] <- U[, i]
+    mfExt[nomiV[i]] <- V[, i]
+  }
+  if (id.psi.fixed) {
+    for (i in 1:ncol(fixedU)) mfExt[colnames(fixedU)[i]] <- fixedU[, 
+                                                                   i]
+    Fo <- update.formula1(formula(obj), as.formula(paste(".~.+", 
+                                                         paste(c(nnomi, colnames(fixedU)), collapse = "+"))), 
+                          opt = 1)
+    Fo.noV <- update.formula1(formula(obj), as.formula(paste(".~.+", 
+                                                             paste(c(nomiU, colnames(fixedU)), collapse = "+"))), 
+                              opt = 1)
+  }
+  else {
+    Fo <- update.formula1(formula(obj), as.formula(paste(".~.+", 
+                                                         paste(nnomi, collapse = "+"))), opt = 1)
+    Fo.noV <- update.formula1(formula(obj), as.formula(paste(".~.+", 
+                                                             paste(nomiU, collapse = "+"))), opt = 1)
+  }
+  call.ok <- update(obj, Fo, evaluate = FALSE, data = mfExt)
+  call.noV <- update(obj, Fo.noV, evaluate = FALSE, data = mfExt)
+  if (it.max == 0) {
+    if (!is.null(call.noV[["subset"]])) 
+      call.noV[["subset"]] <- NULL
+    obj1 <- eval(call.noV, envir = mfExt)
+    return(obj1)
+  }
+  initial <- psi
+  obj0 <- obj
+  dev0 <- eval(parse(text = fn.obj), list(x = obj))
+  if (length(dev0) <= 0) 
+    stop("error in the objective to be minimized, see 'fn.obj' in ?seg.control")
+  if (length(dev0) > 1) 
+    stop("the objective to be minimized is not scalar, see 'fn.obj' in ?seg.control")
+  if (is.na(dev0)) 
+    dev0 <- 10
+  list.obj <- list(obj)
+  nomiOK <- nomiU
+  opz <- list(toll = toll, h = h, stop.if.error = stop.if.error, 
+              dev0 = dev0, visual = visual, it.max = it.max, nomiOK = nomiOK, 
+              id.psi.group = id.psi.group, gap = gap, visualBoot = visualBoot, 
+              pow = pow, digits = digits, conv.psi = conv.psi, alpha = alpha, 
+              fix.npsi = fix.npsi, min.step = min.step)
+  opz$call.ok <- call.ok
+  opz$call.noV <- call.noV
+  opz$formula.orig <- formula(obj)
+  opz$nomiU <- nomiU
+  opz$nomiV <- nomiV
+  opz$fn.obj <- fn.obj
+  opz$fc = fc
+  opz <- c(opz, ...)
+  if (n.boot <= 0) {
+    obj <- seg.def.fit.rok(obj, Z, PSI, mfExt, opz,lambda)
+  }
+  else {
+    obj <- seg.def.fit.boot.rok(obj, Z, PSI, mfExt, opz,lambda, n.boot = n.boot, 
+                                size.boot = size.boot, random = random, break.boot = break.boot)
+  }
+  if (!is.list(obj)) {
+    warning("No breakpoint estimated", call. = FALSE)
+    return(obj0)
+  }
+  if (!is.null(obj$obj$df.residual) && !is.na(obj$obj$df.residual)) {
+    if (obj$obj$df.residual == 0) 
+      warning("no residual degrees of freedom (other warnings expected)", 
+              call. = FALSE)
+  }
+  id.psi.group <- obj$id.psi.group
+  nomiU <- nomiOK <- obj$nomiOK
+  nomiVxb <- sub("U", "psi", nomiOK)
+  nomiFINALI <- unique(sub("U[1-9]*[0-9].", "", 
+                           nomiOK))
+  nomiSenzaPSI <- setdiff(name.Z, nomiFINALI)
+  if (length(nomiSenzaPSI) >= 1) 
+    warning("no breakpoints found for: ", paste(nomiSenzaPSI, 
+                                                " "), call. = FALSE)
+  it <- obj$it
+  psi <- obj$psi
+  psi.list <- vector("list", length = length(unique(name.Z)))
+  names(psi.list) <- name.Z
+  names(psi) <- nomiZ.vett
+  for (i in names(psi.list)) {
+    psi.list[[i]] <- psi[names(psi) == i]
+  }
+  psi.values <- if (n.boot <= 0) 
+    obj$psi.values
+  else obj$boot.restart
+  U <- obj$U
+  V <- obj$V
+  id.warn <- obj$id.warn
+  for (jj in colnames(V)) {
+    VV <- V[, which(colnames(V) == jj), drop = FALSE]
+    sumV <- abs(rowSums(VV))
+    #if (any(table(sumV) <= 1) && stop.if.error)
+    # if (  stop.if.error)
+    #stop("only 1 datum in an interval: breakpoint(s) at the boundary or too close each other")
+  }
+  rangeZ <- obj$rangeZ
+  mfExt <- obj$mfExt
+  names(mfExt)[match(obj$nomiV, names(mfExt))] <- nomiVxb
+  R <- obj$R
+  R.noV <- obj$R.noV
+  r <- obj$r
+  obj <- obj$obj
+  k <- length(psi)
+  beta.c <- unlist(unique(coef(obj)[nomiU]))
+  Vxb <- V %*% diag(beta.c, ncol = length(beta.c))
+  nnomi <- c(nomiU, nomiVxb)
+  for (i in 1:ncol(U)) {
+    mfExt[nomiU[i]] <- mf[nomiU[i]] <- U[, i]
+    mfExt[nomiVxb[i]] <- mf[nomiVxb[i]] <- Vxb[, i]
+  }
+  Fo <- update.formula1(formula(obj0), as.formula(paste(".~.+", 
+                                                        paste(nnomi, collapse = "+"))), opt = 1)
+  if (id.psi.fixed) {
+    for (i in 1:ncol(fixedU)) mfExt[colnames(fixedU)[i]] <- mf[colnames(fixedU)[i]] <- fixedU[, 
+                                                                                              i]
+    Fo <- update.formula(Fo, paste(c("~.", colnames(fixedU)), 
+                                   collapse = "+"))
+  }
+  objF <- update(obj0, Fo, evaluate = FALSE, data = mfExt)
+  if (!is.null(objF[["subset"]])) 
+    objF[["subset"]] <- NULL
+  if (is.null(opz$constr)) 
+    opz$constr <- 0
+  if ((opz$constr %in% 1:2) && class(obj0)[1] == "rq") {
+    objF$method <- "fnc"
+    objF$R <- quote(R)
+    objF$r <- quote(r)
+  }
+  objF <- eval(objF, envir = mfExt)
+  objF$offset <- obj0$offset
+  isNAcoef <- any(is.na(coef(objF)))
+  if (isNAcoef) {
+    if (stop.if.error) {
+      cat("breakpoint estimate(s):", as.vector(psi), 
+          "\n")
+      stop("at least one coef is NA: breakpoint(s) at the boundary? (possibly with many x-values replicated)", 
+           call. = FALSE)
+    }
+    else {
+      warning("some estimate is NA: too many breakpoints? 'var(hat.psi)' cannot be computed \n ..returning a 'lm' model", 
+              call. = FALSE)
+      Fo <- update.formula1(formula(obj0), as.formula(paste(".~.+", 
+                                                            paste(nomiU, collapse = "+"))), opt = 1)
+      objF <- if ((opz$constr %in% 1:2) && class(obj0)[1] == 
+                  "rq") {
+        update(obj0, formula = Fo, R = R.noV, r = r, 
+               method = "fnc", evaluate = TRUE, data = mfExt)
+      }
+      else {
+        update(obj0, Fo, evaluate = TRUE, data = mfExt)
+      }
+      names(psi) <- nomiVxb
+      objF$psi <- psi
+      return(objF)
+    }
+  }
+  nomeCoef <- grep("coef", names(objF), value = TRUE)
+  if (length(nomeCoef) == 0) 
+    nomeCoef <- grep("estimate", names(objF), value = TRUE)
+  if (!is.list(objF[[nomeCoef]])) {
+    objF[[nomeCoef]][names(obj[[nomeCoef]])] <- obj[[nomeCoef]]
+  }
+  else {
+    names(obj[[nomeCoef]][[1]]) <- names(objF[[nomeCoef]][[1]])
+    objF[[nomeCoef]][[1]] <- obj[[nomeCoef]][[1]]
+    objF[[nomeCoef]][[2]] <- obj[[nomeCoef]][[2]]
+  }
+  if (!is.null(objF$maximum)) 
+    objF$maximum <- obj$maximum
+  if (!is.null(objF$pseudo.r.squared)) 
+    objF$pseudo.r.squared <- obj$pseudo.r.squared
+  if (!is.null(objF$geese$beta)) 
+    objF$geese$beta <- obj$coefficients
+  if (!is.null(objF$geese$gamma)) 
+    objF$geese$gamma <- obj$geese$gamma
+  if (!is.null(objF$geese$alpha)) 
+    objF$geese$alpha <- obj$geese$alpha
+  if (!is.null(objF$fitted.values)) 
+    objF$fitted.values <- obj$fitted.values
+  if (!is.null(objF$residuals)) 
+    objF$residuals <- obj$residuals
+  if (!is.null(objF$linear.predictors)) 
+    objF$linear.predictors <- obj$linear.predictors
+  if (!is.null(objF$deviance)) 
+    objF$deviance <- obj$deviance
+  if (!is.null(objF$weights)) 
+    objF$weights <- obj$weights
+  if (!is.null(objF$aic)) 
+    objF$aic <- obj$aic + 2 * k
+  if (!is.null(objF$loglik)) 
+    objF$loglik <- obj$loglik
+  if (!is.null(objF$rho)) 
+    objF$rho <- obj$rho
+  if (!is.null(objF$dual)) 
+    objF$dual <- obj$dual
+  if (!is.null(objF$penalized.deviance)) 
+    objF$penalized.deviance <- obj$penalized.deviance
+  if (!is.null(objF$ModifiedScores)) 
+    objF$ModifiedScores <- c(obj$ModifiedScores, rep(0, k))
+  Cov <- try(vcov(objF), silent = TRUE)
+  if (inherits(Cov, "try-error")) {
+    warning("cannot compute the covariance matrix", 
+            call. = FALSE)
+    vv <- NA
+  }
+  else {
+    vv <- Cov[nomiVxb, nomiVxb, drop = FALSE]
+  }
+  ris.psi <- matrix(NA, length(psi), 3)
+  colnames(ris.psi) <- c("Initial", "Est.", "St.Err")
+  rownames(ris.psi) <- nomiVxb
+  ris.psi[, 2] <- psi
+  ris.psi[, 3] <- sqrt(diag(vv))
+  a <- tapply(id.psi.group, id.psi.group, length)
+  a.ok <- NULL
+  for (j in name.Z) {
+    if (j %in% nomiFINALI) {
+      a.ok[length(a.ok) + 1] <- a[1]
+      a <- a[-1]
+    }
+    else {
+      a.ok[length(a.ok) + 1] <- 0
+    }
+  }
+  initial <- unlist(mapply(function(x, y) {
+    if (is.na(x)[1]) 
+      rep(x, y)
+    else x
+  }, initial.psi[nomiFINALI], a.ok[a.ok != 0], SIMPLIFY = TRUE))
+  if (opz$stop.if.error) 
+    ris.psi[, 1] <- initial
+  objF$rangeZ <- rangeZ
+  objF$psi.history <- psi.values
+  objF$psi <- ris.psi
+  objF$it <- it
+  objF$epsilon <- obj$epsilon
+  objF$call <- match.call()
+  objF$nameUV <- list(U = drop(nomiU), V = rownames(ris.psi), 
+                      Z = nomiFINALI)
+  objF$id.group <- if (length(name.Z) <= 1) 
+    -rowSums(as.matrix(V))
+  objF$id.psi.group <- id.psi.group
+  objF$id.warn <- id.warn
+  objF$orig.call <- orig.call
+  objF$indexU <- build.all.psi(psi.list, fixed.psi)
+  if (model) 
+    objF$model <- mf
+  if (n.boot > 0) 
+    objF$seed <- employed.Random.seed
+  if (keep.class) 
+    class(objF) <- c("segmented", class(obj0))
+  list.obj[[length(list.obj) + 1]] <- objF
+  class(list.obj) <- "segmented"
+  if (last) 
+    list.obj <- list.obj[[length(list.obj)]]
+  warning("The returned fit is ok, but not of class 'segmented'. If interested, call explicitly the segmented methods (plot.segmented, confint.segmented,..)", 
+          call. = FALSE)
+  return(list.obj)
+}
+
+
+
+
+seg.def.fit.rok<-function (obj, Z, PSI, mfExt, opz,lambda, return.all.sol = FALSE) 
+{
+  useExp.k = TRUE
+  est.k <- function(x1, y1, L0) {
+    ax <- log(x1)
+    .x <- cbind(1, ax, ax^2)
+    b <- drop(solve(crossprod(.x), crossprod(.x, y1)))
+    const <- b[1] - L0
+    DD <- sqrt(b[2]^2 - 4 * const * b[3])
+    kk <- exp((-b[2] + DD)/(2 * b[3]))
+    return(round(kk))
+  }
+  dpmax <- function(x, y, pow = 1,lambda) {
+    if (pow == 1) 
+      # -(x > y)
+      my.sig.der(x,lambda,y)*(x-y)-my.sig(x,lambda,y)
+    else #-pow * ((x - y) * (x > y))^(pow - 1)
+      pow * (my.sig.der(x,lambda,y)*(x-y)-my.sig(x,lambda,y))^(pow - 1)
+  }
+  in.psi <- function(LIM, PSI, ret.id = TRUE) {
+    a <- PSI[1, ] <= LIM[1, ]
+    b <- PSI[1, ] >= LIM[2, ]
+    is.ok <- !a & !b
+    if (ret.id) 
+      return(is.ok)
+    isOK <- all(is.ok) && all(!is.na(is.ok))
+    isOK
+  }
+  far.psi <- function(Z, PSI, id.psi.group, ret.id = TRUE, 
+                      fc = 0.93,lambda) {
+    nSeg <- length(unique(id.psi.group))
+    npsij <- tapply(id.psi.group, id.psi.group, length)
+    nj <- sapply(unique(id.psi.group), function(.x) {
+      tabulate(rowSums((Z > PSI)[, id.psi.group == .x, 
+                                 drop = FALSE]) + 1)
+      #tabulate(rowSums((my.sig(Z,lambda,PSI))[, id.psi.group == .x, 
+      #                          drop = FALSE]) + 1)
+      
+      
+    }, simplify = FALSE)
+    ff <- id.far.ok <- vector("list", length = nSeg)
+    for (i in 1:nSeg) {
+      if (length(nj[[i]]) != npsij[i] + 1) 
+        nj[[i]] <- tabulate(rowSums((Z >= PSI)[, id.psi.group == 
+                                                 i, drop = FALSE]) + 1)
+      #nj[[i]] <- tabulate(rowSums((my.sig(Z,lambda,PSI))[, id.psi.group == 
+      #                                        i, drop = FALSE]) + 1)
+      id.ok <- (nj[[i]] >= 2)
+      id.far.ok[[i]] <- id.ok[-length(id.ok)] & id.ok[-1]
+      ff[[i]] <- ifelse(diff(nj[[i]]) > 0, 1/fc, fc)
+    }
+    id.far.ok <- unlist(id.far.ok)
+    ff <- unlist(ff)
+    if (!ret.id) {
+      return(all(id.far.ok))
+    }
+    else {
+      attr(id.far.ok, "factor") <- ff
+      return(id.far.ok)
+    }
+  }
+  adj.psi <- function(psii, LIM) {
+    pmin(pmax(LIM[1, ], psii), LIM[2, ])
+  }
+  fn.costr <- function(n.psi, isLeft = 1, isInterc = 1) {
+    IU <- -diag(n.psi)
+    sumU <- diag(n.psi)
+    sumU[row(sumU) > col(sumU)] <- 1
+    if (isLeft) {
+      sumU <- cbind(1, sumU)
+      IU <- diag(c(1, -rep(1, n.psi)))
+    }
+    A <- rbind(IU, sumU)
+    if (isInterc) {
+      A <- rbind(0, A)
+      A <- cbind(c(1, rep(0, nrow(A) - 1)), A)
+    }
+    A <- cbind(A, matrix(0, nrow(A), n.psi))
+    A
+  }
+  vincoli <- FALSE
+  c1 <- apply((Z <= PSI), 2, all)
+  c2 <- apply((Z >= PSI), 2, all)
+  if (sum(c1 + c2) != 0 || is.na(sum(c1 + c2))) 
+    stop("psi out of the range")
+  n <- nrow(Z)
+  min.step <- opz$min.step
+  rangeZ <- apply(Z, 2, range)
+  alpha <- opz$alpha
+  limZ <- apply(Z, 2, quantile, names = FALSE, probs = c(alpha, 
+                                                         1 - alpha))
+  digits <- opz$digits
+  pow <- opz$pow
+  nomiOK <- opz$nomiOK
+  toll <- opz$toll
+  h <- opz$h
+  conv.psi <- opz$conv.psi
+  gap <- opz$gap
+  stop.if.error <- opz$stop.if.error
+  fix.npsi <- opz$fix.npsi
+  dev.new <- opz$dev0
+  visual <- opz$visual
+  id.psi.group <- opz$id.psi.group
+  it.max <- old.it.max <- opz$it.max
+  fc <- opz$fc
+  psi <- PSI[1, ]
+  names(psi) <- id.psi.group
+  epsilon <- 10
+  dev.values <- psi.values <- NULL
+  it <- 0
+  epsilon <- 10
+  k.values <- dev.values <- NULL
+  psi.values <- list()
+  psi.values[[length(psi.values) + 1]] <- NA
+  nomiU <- opz$nomiU
+  nomiV <- opz$nomiV
+  call.ok <- opz$call.ok
+  call.noV <- opz$call.noV
+  toll <- opz$toll
+  #if (!in.psi(limZ, PSI, FALSE)) 
+  # stop("starting psi out of the range", call. = FALSE)
+  if (!far.psi(Z, PSI, id.psi.group, FALSE,lambda=lambda)) 
+    stop("psi values too close each other. Please change (decreases number of) starting values", 
+         call. = FALSE)
+  n.psi1 <- ncol(Z)
+  if (is.null(opz$constr)) 
+    opz$constr <- 0
+  if ((opz$constr %in% 1:2) && class(obj) == "rq") {
+    vincoli <- TRUE
+    call.ok$method <- "fnc"
+    call.ok$R <- quote(R)
+    call.ok$r <- quote(r)
+    call.noV$method <- "fnc"
+    call.noV$R <- quote(R.noV)
+    call.noV$r <- quote(r)
+  }
+  fn.obj <- opz$fn.obj
+  #U <- ((Z - PSI) * (Z > PSI))
+  U <- ((Z - PSI) * my.sig(Z,lambda,PSI))
+  colnames(U) <- nomiU
+  if (pow[1] != 1) 
+    U <- U^pow[1]
+  obj0 <- suppressWarnings(try(eval(call.noV, envir = mfExt), 
+                               silent = TRUE))
+  if ("try-error" %in% class(obj0)) 
+    stop("The first fit with U variables does not work..", 
+         call. = FALSE)
+  L0 <- eval(parse(text = fn.obj), list(x = obj0))
+  n.intDev0 <- nchar(strsplit(as.character(L0), "\\.")[[1]][1])
+  dev.values[length(dev.values) + 1] <- opz$dev0
+  dev.values[length(dev.values) + 1] <- L0
+  psi.values[[length(psi.values) + 1]] <- psi
+  if (visual) {
+    cat(paste("iter = ", sprintf("%2.0f", 0), 
+              "  min.f = ", sprintf(paste("%", n.intDev0 + 
+                                            6, ".5f", sep = ""), L0), "  k = ", 
+              sprintf("%2.0f", NA), "  n.psi = ", formatC(length(unlist(psi)), 
+                                                          digits = 0, format = "f"), "  ini.psi = ", 
+              paste(formatC(unlist(psi), digits = 3, format = "f"), 
+                    collapse = "  "), sep = ""), "\n")
+  }
+  id.warn <- FALSE
+  id.psi.changed <- rep(FALSE, it.max)
+  while (abs(epsilon) > toll) {
+    it <- it + 1
+    n.psi0 <- n.psi1
+    n.psi1 <- ncol(Z)
+    if (n.psi1 != n.psi0) {
+      #U <- ((Z - PSI) * (Z > PSI))
+      U <- ((Z - PSI) * my.sig(Z,lambda,PSI))
+      if (pow[1] != 1) 
+        U <- U^pow[1]
+      obj0 <- suppressWarnings(try(eval(call.noV, envir = mfExt), 
+                                   silent = TRUE))
+      L0 <- eval(parse(text = fn.obj), list(x = obj0))
+    }
+    V <- dpmax(Z, PSI, pow = pow[2],lambda=lambda)
+    #V<-my.sig.der(Z,lambda,PSI)*(Z-PSI)-my.sig(Z,lambda,PSI)
+    for (i in 1:n.psi1) {
+      mfExt[nomiU[i]] <- U[, i]
+      mfExt[nomiV[i]] <- V[, i]
+    }
+    R <- fn.costr(ncol(U), 1, 1)
+    R.noV <- R[, -((ncol(R) - 1) + seq_len(ncol(U))), drop = FALSE]
+    r <- rep(0, nrow(R))
+    obj <- suppressWarnings(eval(call.ok, envir = mfExt))
+    beta.c <- unlist(unique(coef(obj)[nomiU]))
+    gamma.c <- unlist(unique(coef(obj)[nomiV]))
+    if (any(is.na(c(beta.c, gamma.c)))) {
+      if (fix.npsi) {
+        if (return.all.sol) 
+          return(list(dev.values, psi.values))
+        else stop("breakpoint estimate too close or at the boundary causing NA estimates.. too many breakpoints being estimated?", 
+                  call. = FALSE)
+      }
+      else {
+        id.coef.ok <- !is.na(gamma.c)
+        psi <- psi[id.coef.ok]
+        gamma.c <- gamma.c[id.coef.ok]
+        beta.c <- beta.c[id.coef.ok]
+        Z <- Z[, id.coef.ok, drop = FALSE]
+        rangeZ <- rangeZ[, id.coef.ok, drop = FALSE]
+        limZ <- limZ[, id.coef.ok, drop = FALSE]
+        nomiOK <- nomiOK[id.coef.ok]
+        id.psi.group <- id.psi.group[id.coef.ok]
+        names(psi) <- id.psi.group
+      }
+    }
+    psi.old <- psi
+    psi <- psi.old + gamma.c/beta.c
+    if (!is.null(digits)) 
+      psi <- round(psi, digits)
+    PSI <- matrix(rep(psi, rep(n, length(psi))), ncol = length(psi))
+    #U <- (Z - PSI) * (Z > PSI)
+    U <- ((Z - PSI) * my.sig(Z,lambda,PSI))
+    if (pow[1] != 1) 
+      U <- U^pow[1]
+    for (i in 1:ncol(U)) mfExt[nomiU[i]] <- U[, i]
+    obj1 <- suppressWarnings(try(eval(call.noV, envir = mfExt), 
+                                 silent = TRUE))
+    L1 <- if (class(obj1)[1] == "try-error") 
+      L0 + 10
+    else eval(parse(text = fn.obj), list(x = obj1))
+    use.k <- k <- 1
+    L1.k <- NULL
+    L1.k[length(L1.k) + 1] <- L1
+    while (L1 > L0) {
+      k <- k + 1
+      use.k <- if (useExp.k) 
+        2^(k - 1)
+      else k
+      psi <- psi.old + (gamma.c/beta.c)/(use.k * h)
+      if (!is.null(digits)) 
+        psi <- round(psi, digits)
+      PSI <- matrix(rep(psi, rep(n, length(psi))), ncol = length(psi))
+      #U <- (Z - PSI) * (Z > PSI)
+      U <- ((Z - PSI) * my.sig(Z,lambda,PSI))
+      if (pow[1] != 1) 
+        U <- U^pow[1]
+      for (i in 1:ncol(U)) mfExt[nomiU[i]] <- U[, i]
+      obj1 <- suppressWarnings(try(eval(call.noV, envir = mfExt), 
+                                   silent = TRUE))
+      L1 <- if (class(obj1)[1] == "try-error") 
+        L0 + 10
+      else eval(parse(text = fn.obj), list(x = obj1))
+      L1.k[length(L1.k) + 1] <- L1
+      if (1/(use.k * h) < min.step) {
+        break
+      }
+    }
+    if (visual) {
+      flush.console()
+      cat(paste("iter = ", sprintf("%2.0f", 
+                                   it), "  min.f = ", sprintf(paste("%", 
+                                                                    n.intDev0 + 6, ".5f", sep = ""), 
+                                                              L1), "  k = ", sprintf("%2.0f", k), 
+                "  n.psi = ", formatC(length(unlist(psi)), 
+                                      digits = 0, format = "f"), "  est.psi = ", 
+                paste(formatC(unlist(psi), digits = 3, format = "f"), 
+                      collapse = "  "), sep = ""), "\n")
+    }
+    epsilon <- if (conv.psi) 
+      max(abs((psi - psi.old)/psi.old))
+    else (L0 - L1)/(abs(L0) + 0.1)
+    L0 <- L1
+    k.values[length(k.values) + 1] <- use.k
+    psi.values[[length(psi.values) + 1]] <- psi
+    dev.values[length(dev.values) + 1] <- L0
+    id.psi.far <- far.psi(Z, PSI, id.psi.group, TRUE, fc = opz$fc,lambda=lambda)
+    id.psi.in <- in.psi(limZ, PSI, TRUE)
+    id.psi.ok <- id.psi.in & id.psi.far
+    if (!all(id.psi.ok)) {
+      if (fix.npsi) {
+        psi <- psi * ifelse(id.psi.far, 1, 0.9)
+        PSI <- matrix(rep(psi, rep(nrow(Z), length(psi))), 
+                      ncol = length(psi))
+        id.psi.changed[it] <- TRUE
+      }
+      else {
+        Z <- Z[, id.psi.ok, drop = FALSE]
+        PSI <- PSI[, id.psi.ok, drop = FALSE]
+        rangeZ <- rangeZ[, id.psi.ok, drop = FALSE]
+        limZ <- limZ[, id.psi.ok, drop = FALSE]
+        nomiOK <- nomiOK[id.psi.ok]
+        id.psi.group <- id.psi.group[id.psi.ok]
+        psi.old <- psi.old[id.psi.ok]
+        psi <- psi[id.psi.ok]
+        names(psi) <- id.psi.group
+        if (ncol(PSI) <= 0) {
+          warning(paste("All breakpoints have been removed after", 
+                        it, "iterations.. returning 0"), call. = FALSE)
+          return(0)
+        }
+      }
+    }
+    if (it >= it.max) {
+      id.warn <- TRUE
+      break
+    }
+  }
+  if (id.warn) 
+    warning(paste("max number of iterations (", it, 
+                  ") attained", sep = ""), call. = FALSE)
+  if (id.psi.changed[length(id.psi.changed)]) 
+    warning(paste("Some psi (", (1:length(psi))[!id.psi.far], 
+                  ") changed after the last iter.", sep = ""), 
+            call. = FALSE)
+  attr(psi.values, "dev") <- dev.values
+  attr(psi.values, "k") <- k.values
+  psi <- unlist(tapply(psi, id.psi.group, sort))
+  names(psi) <- id.psi.group
+  names.coef <- names(coef(obj))
+  PSI.old <- PSI
+  PSI <- matrix(rep(psi, rep(nrow(Z), length(psi))), ncol = length(psi))
+  if (sd(PSI - PSI.old) > 0 || id.psi.changed[length(id.psi.changed)]) {
+    #U <- (Z - PSI) * (Z > PSI)
+    U <- ((Z - PSI) * my.sig(Z,lambda,PSI))
+    colnames(U) <- paste("U", 1:ncol(U), sep = "")
+    #V <- -(Z > PSI)
+    V<-my.sig.der(Z,lambda,PSI)*(Z-PSI)-my.sig(Z,lambda,PSI)
+    colnames(V) <- paste("V", 1:ncol(V), sep = "")
+    for (i in 1:n.psi1) {
+      mfExt[nomiU[i]] <- U[, i]
+      mfExt[nomiV[i]] <- V[, i]
+    }
+    obj <- suppressWarnings(try(eval(call.noV, envir = mfExt), 
+                                silent = TRUE))
+    L1 <- eval(parse(text = fn.obj), list(x = obj))
+  }
+  else {
+    obj <- obj1
+  }
+  nomeCoef <- grep("coef", names(obj), value = TRUE)
+  if (length(nomeCoef) == 0) {
+    nomeCoef <- grep("estimate", names(obj), value = TRUE)
+  }
+  if (length(nomeCoef) == 0) 
+    stop("I can't extract the estimated coefficients")
+  if (is.list(obj[[nomeCoef]])) {
+    obj[[nomeCoef]][[1]] <- c(obj[[nomeCoef]][[1]], rep(0, 
+                                                        ncol(V)))
+    names(obj[[nomeCoef]][[1]]) <- names.coef[1:length(obj[[nomeCoef]][[1]])]
+  }
+  else {
+    nomiconV <- c(names(obj[[nomeCoef]]), sub("V", 
+                                              "psi", nomiV))
+    obj[[nomeCoef]] <- c(obj[[nomeCoef]], rep(0, ncol(V)))
+    names(obj[[nomeCoef]]) <- nomiconV
+  }
+  obj$epsilon <- epsilon
+  obj$it <- it
+  obj <- list(obj = obj, it = it, psi = psi, psi.values = psi.values, 
+              U = U, V = V, rangeZ = rangeZ, epsilon = epsilon, nomiOK = nomiOK, 
+              SumSquares.no.gap = L1, id.psi.group = id.psi.group, 
+              id.warn = id.warn, nomiV = nomiV, nomiU = nomiU, mfExt = mfExt)
+  if (vincoli) {
+    obj$R <- R
+    obj$R.noV <- R.noV
+    obj$r <- r
+  }
+  return(obj)
+}
+
+
+
+
+seg.def.fit.boot.rok<-function (obj, Z, PSI, mfExt, opz,lambda, n.boot = 10, size.boot = NULL, 
+                                jt = FALSE, nonParam = TRUE, random = FALSE, break.boot = n.boot) 
+{
+  extract.psi <- function(lista) {
+    dev.values <- lista[[1]][-1]
+    psi.values <- lista[[2]][-1]
+    dev.ok <- min(dev.values)
+    id.dev.ok <- which.min(dev.values)
+    if (is.list(psi.values)) 
+      psi.values <- matrix(unlist(psi.values), nrow = length(dev.values), 
+                           byrow = TRUE)
+    if (!is.matrix(psi.values)) 
+      psi.values <- matrix(psi.values)
+    psi.ok <- psi.values[id.dev.ok, ]
+    r <- list(SumSquares.no.gap = dev.ok, psi = psi.ok)
+    r
+  }
+  visualBoot <- opz$visualBoot
+  opz.boot <- opz
+  opz.boot$pow = c(1, 1)
+  opz1 <- opz
+  opz1$it.max <- 1
+  n <- nrow(mfExt)
+  o0 <- try(suppressWarnings(seg.def.fit.rok(obj, Z, PSI, mfExt, 
+                                             opz,lambda=lambda)), silent = TRUE)
+  rangeZ <- apply(Z, 2, range)
+  if (!is.list(o0)) {
+    o0 <- seg.def.fit.rok(obj, Z, PSI, mfExt, opz,lambda=lambda, return.all.sol = TRUE)
+    o0 <- extract.psi(o0)
+    if (!nonParam) {
+      warning("using nonparametric boot")
+      nonParam <- TRUE
+    }
+  }
+  if (is.list(o0)) {
+    est.psi00 <- est.psi0 <- o0$psi
+    ss00 <- o0$SumSquares.no.gap
+    if (!nonParam) 
+      fitted.ok <- fitted(o0)
+  }
+  else {
+    if (!nonParam) 
+      stop("the first fit failed and I cannot extract fitted values for the semipar boot")
+    if (random) {
+      est.psi00 <- est.psi0 <- apply(rangeZ, 2, function(r) runif(1, 
+                                                                  r[1], r[2]))
+      PSI1 <- matrix(rep(est.psi0, rep(nrow(Z), length(est.psi0))), 
+                     ncol = length(est.psi0))
+      o0 <- try(suppressWarnings(seg.def.fit.rok(obj, Z, PSI1, 
+                                                 mfExt, opz1,lambda=lambda)), silent = TRUE)
+      ss00 <- o0$SumSquares.no.gap
+    }
+    else {
+      est.psi00 <- est.psi0 <- apply(PSI, 2, mean)
+      ss00 <- opz$dev0
+    }
+  }
+  n.intDev0 <- nchar(strsplit(as.character(ss00), "\\.")[[1]][1])
+  all.est.psi.boot <- all.selected.psi <- all.est.psi <- matrix(, 
+                                                                nrow = n.boot, ncol = length(est.psi0))
+  all.ss <- all.selected.ss <- rep(NA, n.boot)
+  if (is.null(size.boot)) 
+    size.boot <- n
+  Z.orig <- Z
+  count.random <- 0
+  for (k in seq(n.boot)) {
+    n.boot.rev <- 3
+    diff.selected.ss <- rev(diff(na.omit(all.selected.ss)))
+    if (length(diff.selected.ss) >= (n.boot.rev - 1) && all(round(diff.selected.ss[1:(n.boot.rev - 
+                                                                                      1)], 6) == 0)) {
+      qpsi <- sapply(1:ncol(Z), function(i) mean(est.psi0[i] >= 
+                                                   Z[, i]))
+      qpsi <- ifelse(abs(qpsi - 0.5) < 0.1, 0.8, qpsi)
+      est.psi0 <- sapply(1:ncol(Z), function(i) quantile(Z[, 
+                                                           i], probs = 1 - qpsi[i], names = FALSE))
+    }
+    PSI <- matrix(rep(est.psi0, rep(nrow(Z), length(est.psi0))), 
+                  ncol = length(est.psi0))
+    if (jt) 
+      Z <- apply(Z.orig, 2, jitter)
+    if (nonParam) {
+      id <- sample(n, size = size.boot, replace = TRUE)
+      o.boot <- try(suppressWarnings(seg.def.fit.rok(obj, Z[id, 
+                                                            , drop = FALSE], PSI[id, , drop = FALSE], mfExt[id, 
+                                                                                                            , drop = FALSE], opz.boot,lambda=lambda)),lambda, silent = TRUE)
+    }
+    else {
+      yy <- fitted.ok + sample(residuals(o0), size = n, 
+                               replace = TRUE)
+      o.boot <- try(suppressWarnings(seg.def.fit.rok(obj, Z.orig, 
+                                                     PSI, mfExt, opz.boot,lambda=lambda)), silent = TRUE)
+    }
+    if (is.list(o.boot)) {
+      all.est.psi.boot[k, ] <- est.psi.boot <- o.boot$psi
+    }
+    else {
+      est.psi.boot <- apply(rangeZ, 2, function(r) runif(1, 
+                                                         r[1], r[2]))
+    }
+    PSI <- matrix(rep(est.psi.boot, rep(nrow(Z), length(est.psi.boot))), 
+                  ncol = length(est.psi.boot))
+    opz$h <- max(opz$h * 0.9, 0.2)
+    opz$it.max <- opz$it.max + 1
+    o <- try(seg.def.fit.rok(obj, Z.orig, PSI, mfExt, opz,lambda, return.all.sol = TRUE), 
+             silent = TRUE)
+    if (!is.list(o) && random) {
+      est.psi0 <- apply(rangeZ, 2, function(r) runif(1, 
+                                                     r[1], r[2]))
+      PSI1 <- matrix(rep(est.psi0, rep(nrow(Z), length(est.psi0))), 
+                     ncol = length(est.psi0))
+      o <- try(suppressWarnings(seg.def.fit.rok(obj, Z, PSI1, 
+                                                mfExt, opz1,lambda=lambda)), silent = TRUE)
+      count.random <- count.random + 1
+    }
+    if (is.list(o)) {
+      if (isFALSE("coefficients" %in% names(o$obj) || 
+                  "estimate" %in% names(o$obj))) 
+        o <- extract.psi(o)
+      all.est.psi[k, ] <- o$psi
+      all.ss[k] <- o$SumSquares.no.gap
+      if (o$SumSquares.no.gap <= ifelse(is.list(o0), o0$SumSquares.no.gap, 
+                                        10^12)) 
+        o0 <- o
+      est.psi0 <- o0$psi
+      all.selected.psi[k, ] <- est.psi0
+      all.selected.ss[k] <- o0$SumSquares.no.gap
+    }
+    if (visualBoot) {
+      flush.console()
+      cat(paste("boot sample = ", sprintf("%2.0f", 
+                                          k), "  opt.min.f = ", sprintf(paste("%", 
+                                                                              n.intDev0 + 6, ".5f", sep = ""), 
+                                                                        o0$SumSquares.no.gap), "  n.psi = ", formatC(length(unlist(est.psi0)), 
+                                                                                                                     digits = 0, format = "f"), "  est.psi = ", 
+                paste(formatC(unlist(est.psi0), digits = 3, format = "f"), 
+                      collapse = "  "), sep = ""), "\n")
+    }
+    asss <- na.omit(all.selected.ss)
+    if (length(asss) > break.boot) {
+      if (all(rev(round(diff(asss), 6))[1:(break.boot - 
+                                           1)] == 0)) 
+        break
+    }
+  }
+  all.selected.psi <- rbind(est.psi00, all.selected.psi)
+  all.selected.ss <- c(ss00, all.selected.ss)
+  ris <- list(all.selected.psi = drop(all.selected.psi), all.selected.ss = all.selected.ss, 
+              all.psi = all.est.psi, all.ss = all.ss)
+  if (is.null(o0$obj)) {
+    PSI1 <- matrix(rep(est.psi0, rep(nrow(Z), length(est.psi0))), 
+                   ncol = length(est.psi0))
+    o0 <- try(suppressWarnings(seg.def.fit.rok(obj, Z, PSI1, 
+                                               mfExt, opz1,lambda=lambda)), silent = TRUE)
+  }
+  if (!is.list(o0)) 
+    return(0)
+  o0$boot.restart <- ris
+  rm(.Random.seed, envir = globalenv())
+  return(o0)
+}
+
+
+
+
+
+
+
+library(mvtnorm)
+library(purrr)
+library(brglm2)
+library(segmented)
+library(betareg) #could we avoid this and use quasibinomial and then also use bias reduced estimator? no need, there is type argument!
+library(quantreg) #segmented does not work for this class, we need to adapt the segmented function since in principle it should work: beter adapt the fit?
+
+###segmented does not work correctly with bias reduced estimator!, it works but you have to use segmented.default!
+
+###source my segmented hack (to force him to use BR estimators!), not needed (thank god!)
+
+#source("rok_segmented_glm.R")
+
+
+###needed so that segmented.default works also for QR (there are different options for geting se, I am using ker, see vignete for details)
+
+vcov.rq<-function(x){
+  sm<-summary(x,se = "ker")$coef[,2]
+  mat<-diag(sm**2)
+  colnames(mat)<-rownames(mat)<-names(sm)
+  mat
+}
+
+
+########sim Z data
+
+#the same as in Geroldinger et al. 2022 (see paper and supplement for reference)
+#from paper:
+
+#For the generation of the five covariates X1, ?X5 we followed ideas by Binder et al. [22] in order to obtain realistic data. By first sampling from five standard normally distributed variables Z1, ?Z5 with correlation structure as defined in Table S2 and then applying the transformations specified in Table S2 we obtained three binary variables X1, X2, X3, one ordinal variable X4 and one continuous variable X5. The covariates X1 and X2 were generated as ?between-cluster? covariates by requiring Z1 and Z2 to be constant within clusters, while the three other covariates were generated as ?within-cluster? covariates, i.e. they were allowed to vary between the observations of a cluster. To avoid extreme values in the metric covariate X5, we winsorized it at the third quartile plus three times the interquartile range and at the first quartile minus three times the interquartile range, where the quartiles were determined by applying the transformation given in Table S2 to the quartiles of the standard normally distributed variable Z5.
+#Reference: Binder H, Sauerbrei W, Royston P. Multivariable model-building with continuous covariates: 1. Performance measures and simulation design. Technical report FDM-preprint 105. 2011; University of Freiburg, Germany.
+
+simZ<-function(n){
+  
+  cor.mat<-rbind(c(1,0.5,0.5,0,0),
+                 c(0.5,1,0,0.5,0),
+                 c(0.5,0,1,0,-0.3),
+                 c(0,0.5,0,1,0.5),
+                 c(0,0,-0.3,0.5,1))
+  X<-rmvnorm(n,sigma=cor.mat,method="chol")
+  Z1<-ifelse(X[,1]<(-1),1,0)
+  Z2<-ifelse(X[,2]<(-1),1,0)
+  Z3<-ifelse(X[,3]<0,1,0)
+  Z4<-ifelse(X[,4]>=0.5,1,0)+ifelse(X[,4]>=1.5,1,0)
+  Z5<-10*X[,5]+55
+  upl<-quantile(X[,5],probs=0.75)+3*(quantile(X[,5],probs=0.75)-quantile(X[,5],probs=0.25))
+  lll<-quantile(X[,5],probs=0.75)-3*(quantile(X[,5],probs=0.75)-quantile(X[,5],probs=0.25))
+  
+  upll<-upl*10+55
+  llll<-lll*10+55
+  Z5[Z5<llll]<-llll
+  Z5[Z5>upll]<-upll
+  
+  cbind(Z1,Z2,Z3,Z4,Z5)
+  #Z<-model.matrix(~Z1+Z2+Z3+factor(Z4)+Z5-1)
+  #Z
+}
+
+
+##other aux fncts to sim data
+
+#pos of chpnts
+get.tau<-function(a=0,b=30,task,no){
+  
+  if (task=="easy") f<-1
+  
+  if (task=="medium") f<-2
+  
+  if (task=="hard") f<-4
+  
+  floor(seq(from=a,to=b/f,length.out = 2+no)[-c(1,2+no)])
+  
+}
+
+
+#sim all data needed to fit the model
+
+#argument var.sigma only applies to linear and quantile
+#argument phi.beta only applies to beta, note var(Y)=mu(1-mu)/(1+phi)
+mysim_data<-function(n,dif,no, delta0,delta1,alter,model,intercept,var.sigma,phi.beta){
+  
+  x<-rdunif(n, b=30 , a=0)# x must be greater than 30
+  
+  
+  Z<-simZ(n)
+  betas<-c(0.69,0.69,0.69,0.35,-0.035)
+  lp1<-Z%*%betas
+  
+  
+  if(no==0){
+    lp2<-intercept+delta0*x
+    #lp<-lp2 +lp1
+    chpoints=NA
+    # endif
+    # return("easyvvvvv")
+  }
+  else { 
+    tau<-get.tau(a=0,b=30,dif,no) 
+    chpoints=tau
+    if(no==1)
+    { 
+      
+      tau1<-tau[1]
+      lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1) #1 chpnt +epsilon
+      #lp<-lp2 +lp1
+      
+      
+      
+      
+    }
+    
+    if(no==2)
+    { 
+      tau1=tau[1]
+      tau2=tau[2]
+      if (alter==FALSE) lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)+delta1* ifelse(x-tau2<0,0, x-tau2) 
+      else  
+        lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)-delta1* ifelse(x-tau2<0,0, x-tau2)
+      
+      
+      
+      
+      
+    }
+    
+    
+    if(no==3)
+    { 
+      tau1=tau[1]
+      tau2=tau[2]
+      tau3=tau[3]
+      
+      if (alter==FALSE) lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)+delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3) #1 chpnt
+      else
+        lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)-delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3)
+      
+      
+    }
+    
+    
+    if(no==4)
+    { 
+      tau1=tau[1]
+      tau2=tau[2]
+      tau3=tau[3]
+      tau4=tau[4]
+      if (alter==FALSE) lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)+delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3)+
+        delta1* ifelse(x-tau4<0,0, x-tau4)
+      else 
+        lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)-delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3)-
+        delta1* ifelse(x-tau4<0,0, x-tau4)
+    }
+    
+    
+    if(no==5)
+    { 
+      tau1=tau[1]
+      tau2=tau[2]
+      tau3=tau[3]
+      tau4=tau[4]
+      tau5=tau[5]
+      if (alter==FALSE) lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)+delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3)+
+        delta1* ifelse(x-tau4<0,0, x-tau4)+    delta1* ifelse(x-tau5<0,0, x-tau5)
+      else 
+        lp2<-intercept+delta0*x+delta1* ifelse(x-tau1<0,0, x-tau1)-delta1* ifelse(x-tau2<0,0, x-tau2)+delta1* ifelse(x-tau3<0,0, x-tau3)-
+        delta1* ifelse(x-tau4<0,0, x-tau4)+    delta1* ifelse(x-tau5<0,0, x-tau5)
+      
+    }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    #return("easy")
+    
+    
+    
+    
+    
+  }
+  
+  
+  lp<-lp2 +lp1
+  
+  if (model=="linear"|model=="quantile"){
+    eps<-rnorm(n,sd=sqrt(var.sigma))
+    y<-lp +eps  
+  }
+  if (model=="logistic"){
+    prob<-1/(1+exp(-lp))
+    y<-rbinom(n,prob=prob,size=1)
+  }
+  if (model=="poisson"){
+    rate<-exp(lp)
+    
+    y<-rpois(n,lambda=rate)
+    
+  }
+  if (model=="beta"){
+    mu<-1/(1+exp(-lp))
+    #phi<-phi.beta #should not be too small!
+    var<-mu*(1-mu)/(1+phi.beta)
+    estBetaParams <- function(mu, var) {
+      alpha <- ((1 - mu) / var - 1 / mu) * mu ^ 2
+      beta <- alpha * (1 / mu - 1)
+      return(params = list(alpha = alpha, beta = beta))
+    }
+    sp<-estBetaParams(mu,var)
+    
+    #shape1<-mu*phi
+    #shape2<-phi-shape1
+    shape1<-sp$alpha
+    shape2<-sp$beta
+    y<-rbeta(n,shape1,shape2)
+    y[y<1e-8]<-1e-8
+    y[y>1-1e-8]<-1-1e-8
+  }
+  
+  df<-data.frame(Y=y,Z =Z , X = x)
+  
+  my_list <- list(data=df , "chpoints"=chpoints)
+  return(my_list)  
+  
+  
+  
+}
+
+
+#fntcs related to finding the intercept for different models (not relevant for linear and quantile)
+
+#poisson
+
+get.beta0_pois<-function(beta0, lp, target.mean){
+  -target.mean + mean(exp(beta0 + lp))
+}
+
+get_intercept_poisson<-function(mn,delta0,delta1,chpnts,alter){
+  #lpZ<-c(0.69,0.69,0.69,0.35,-0.035)%*%matrix(c(0.158,0.158,0.5,0.375,55),ncol=1)
+  
+  lpZ<-simZ(1e6)%*%matrix(c(0.69,0.69,0.69,0.35,-0.035),ncol=1)
+  
+  x<-0:30 
+  lpX0<-x*delta0
+  for (i in 1:length(chpnts)){
+    if (i==1) { lpX0=lpX0+delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])
+    } else {
+      if (alter==TRUE&(i/2==floor(i/2))) lpX0=lpX0-delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])   else lpX0=lpX0+delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])
+    }
+  }
+  
+  lpX0<-rep(lpX0,1e6/31)
+  lp<-as.vector(lpZ)+lpX0
+  
+  
+  beta0.opt<-uniroot(get.beta0_pois, c(-200,200), tol=1e-12, lp=lp, target.mean=mn,maxiter=1e6)$root #for p=1 it would be enough to do it once, since we get the same throughout, but for p>1 we get different optimum constant
+  beta0.opt
+}
+
+#logistic and beta 
+
+get.beta0_logit<-function(beta0, lp, target.prop){
+  -target.prop + mean(1/ (1+exp(-beta0 - lp)))
+}
+
+get_intercept_logistic<-function(mn,delta0,delta1,chpnts,alter){
+  #lpZ<-c(0.69,0.69,0.69,0.35,-0.035)%*%matrix(c(0.158,0.158,0.5,0.375,55),ncol=1)
+  
+  lpZ<-simZ(1e6)%*%matrix(c(0.69,0.69,0.69,0.35,-0.035),ncol=1)
+  
+  x<-0:30 
+  lpX0<-x*delta0
+  for (i in 1:length(chpnts)){
+    if (i==1) { lpX0=lpX0+delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])
+    } else {
+      if (alter==TRUE&(i/2==floor(i/2))) lpX0=lpX0-delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])  else lpX0=lpX0+delta1* ifelse(x-chpnts[i]<0,0, x-chpnts[i])
+    }
+  }
+  
+  lpX0<-rep(lpX0,1e6/31)
+  lp<-as.vector(lpZ)+lpX0
+  
+  #lp<-as.vector(lpZ+lpX0)
+  
+  beta0.opt<-uniroot(get.beta0_logit, c(-200,200), tol=1e-8, lp=lp, target.prop=mn)$root #for p=1 it would be enough to do it once, since we get the same throughout, but for p>1 we get different optimum constant
+  beta0.opt
+}
+
+
+
+
+
+##########end my segmented functions
+
+
+###functions to get output
+
+est.coef<-function(fit){
+  
+  list<-rep(NA,12)
+  names(list) <- c("(Intercept)", " ZZ1", " ZZ2"," ZZ3"," ZZ4"," ZZ5","x","U1.x","U2.x","U3.x","U4.x","U5.x")
+  results<-list
+  h<- ifelse(is.null(nrow(fit$psi)),0,nrow(fit$psi))
+  coef<-coef(fit)
+  i<-1
+  while(i<h+8){ 
+    results[i]<-coef[i]
+    i=i+1}
+  return(results) 
+}  
+
+est.nochp<-function(fit){
+  h<- ifelse(is.null(nrow(fit$psi)),0,nrow(fit$psi))
+  return(h) 
+}  
+
+est.location<-function(fit){
+  t <-NA
+  h<- ifelse(is.null(nrow(fit$psi)),0,nrow(fit$psi))
+  if (h==0) return (t)
+  else return (fit$psi[,"Est."])
+}
+
+est.location2<-function(x){
+  xx<-rep(NA,5)
+  xx[1:length(x)]<-x
+  xx
+}
+
+est.CI<-function(fit,tci){ #tci can only be "gradient" since we are also considering nonlinear models
+  ci<-matrix(NA,ncol=2,nrow=5)
+  h<- ifelse(is.null(nrow(fit$psi)),0,nrow(fit$psi))
+  if (h==0) return (ci)
+  if (class(fit)[1]!="rq"){
+    if(tci=="delta") ci1<-confint.segmented(fit,method="delta")  
+    if(tci=="score") ci1<-confint.segmented(fit,method="score") 
+    if (tci=="gradient") ci1<-confint.segmented(fit,method="gradient") 
+  } else {
+    if(tci=="delta") ci1<-confint.segmented(fit,method="delta",.vcov =vcov.rq(fit))  
+    if(tci=="score") ci1<-confint.segmented(fit,method="score",.vcov =vcov.rq(fit)) 
+    if (tci=="gradient") ci1<-confint.segmented(fit,method="gradient",.vcov =vcov.rq(fit))
+  }
+  ci[1:nrow(ci1),]<-ci1[,2:3]
+  return(ci) 
+  
+}
+
+my.chp.true<-function(x){
+  xx<-rep(NA,5)
+  xx[1:length(x)]<-x
+  xx
+}
+
+#########fncts to do grid search 
+
+
+####grid.search
+
+my.lrt<-function(fit) {
+  if (class(fit)[1]!="try-error")   res<-as.numeric(logLik(fit)) else res<-NA
+  res
+  
+}
+
+#fit<-fito
+
+
+my.ci.limits<-function(fit,fiti,no){
+  
+  limit<-my.lrt(fit)+qchisq(0.95,no)/(-2)
+  lrts<-unlist(lapply(fiti,my.lrt))
+  mt<-which(lrts>=limit)
+  mt
+} 
+
+#min.grid=1
+#max.grid=29
+#step.grid=1
+
+#data<-mydata$data
+
+
+
+get_limit<-function(x,y){
+  res<-rep(NA,length(y))
+  for (i in 1:length(y)) res[i]<-x[[y[i]]]
+  res
+}
+
+
+
+my.grid<-function(fit,no,data,min.grid=1,max.grid=29,step.grid=1){
+  
+  if (no==1){
+    grid<-seq(from=min.grid,to=max.grid,by=step.grid)
+    zz<-0
+    fiti<-list()
+    for (i in grid){
+      zz=zz+1
+      data$U<-ifelse(data$X-i<0,0, data$X-i)
+      fiti[[zz]]<-try(update(fit,formula = Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X+U,data=data,evaluate=TRUE),silent=TRUE)
+      
+    }
+    grid[[zz+1]]<-0
+    fiti[[zz+1]]<-fit
+    mm<-which.max(unlist(lapply(fiti,my.lrt)))
+    if (mm==zz+1) est.tau<-NA else est.tau<-grid[mm]
+    fito<-fiti[[mm]]
+    #CI
+    if (sum(!is.na(est.tau))>0){
+      lmt<-my.ci.limits(fito,fiti,no)
+      lmt1<-get_limit(grid,lmt)
+      ci.tau.1<-c(min(lmt1,na.rm=TRUE),max(lmt1,na.rm=TRUE))
+      ci.tau<-list(ci.tau.1)
+    } else ci.tau<-NA
+  }
+  if (no==2){
+    grid<-seq(from=min.grid,to=max.grid,by=step.grid)
+    zz<-0
+    fiti<-list()
+    tau1i<-tau2i<-list()
+    for (i in 1:(length(grid)-1)){
+      for (j in (i+1):length(grid)){
+        zz=zz+1
+        tau1<-grid[i]
+        tau2<-grid[j]
+        tau1i[[zz]]<-tau1
+        tau2i[[zz]]<-tau2
+        data$U1<-ifelse(data$X-tau1<0,0, data$X-tau1)
+        data$U2<-ifelse(data$X-tau2<0,0, data$X-tau2)
+        fiti[[zz]]<-try(update(fit,formula = Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X+U1+U2,data=data,evaluate=TRUE),silent=TRUE)
+      } 
+    }
+    tau1i[[zz+1]]<-0
+    tau2i[[zz+1]]<-0
+    fiti[[zz+1]]<-fit
+    mm<-which.max(unlist(lapply(fiti,my.lrt)))
+    if (mm==zz+1) est.tau<-NA else {
+      est.tau1<-tau1i[[mm]]
+      est.tau2<-tau2i[[mm]]
+      est.tau<-c(est.tau1,est.tau2)
+    }
+    fito<-fiti[[mm]]
+    #CI
+    if (sum(!is.na(est.tau))>0){
+      lmt<-my.ci.limits(fito,fiti,no)
+      lmt1<-get_limit(tau1i,lmt)
+      lmt2<-get_limit(tau2i,lmt)
+      ci.tau.1<-c(min(lmt1,na.rm=TRUE),max(lmt1,na.rm=TRUE))
+      ci.tau.2<-c(min(lmt2,na.rm=TRUE),max(lmt2,na.rm=TRUE))
+      
+      ci.tau<-list(ci.tau.1,ci.tau.2)
+    } else ci.tau<-NA
+  }
+  if (no==3){
+    grid<-seq(from=min.grid,to=max.grid,by=step.grid)
+    zz<-0
+    fiti<-list()
+    tau1i<-tau2i<-tau3i<-list()
+    for (i in 1:(length(grid)-2)){
+      for (j in (i+1):(length(grid)-1)){
+        for (k in (j+1):(length(grid))){
+          zz=zz+1
+          tau1<-grid[i]
+          tau2<-grid[j]
+          tau3<-grid[k]
+          tau1i[[zz]]<-tau1
+          tau2i[[zz]]<-tau2
+          tau3i[[zz]]<-tau3
+          data$U1<-ifelse(data$X-tau1<0,0, data$X-tau1)
+          data$U2<-ifelse(data$X-tau2<0,0, data$X-tau2)
+          data$U3<-ifelse(data$X-tau3<0,0, data$X-tau3)
+          fiti[[zz]]<-try(update(fit,formula = Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X+U1+U2+U3,data=data,evaluate=TRUE),silent=TRUE)
+        } 
+      }}
+    tau1i[[zz+1]]<-0
+    tau2i[[zz+1]]<-0
+    tau3i[[zz+1]]<-0
+    fiti[[zz+1]]<-fit
+    mm<-which.max(unlist(lapply(fiti,my.lrt)))
+    if (mm==zz+1) est.tau<-NA else {
+      est.tau1<-tau1i[[mm]]
+      est.tau2<-tau2i[[mm]]
+      est.tau3<-tau3i[[mm]]
+      est.tau<-c(est.tau1,est.tau2,est.tau3)
+    }
+    fito<-fiti[[mm]]
+    #CI
+    if (sum(!is.na(est.tau))>0){
+      lmt<-my.ci.limits(fito,fiti,no)
+      lmt1<-get_limit(tau1i,lmt)
+      lmt2<-get_limit(tau2i,lmt)
+      lmt3<-get_limit(tau3i,lmt)
+      ci.tau.1<-c(min(lmt1,na.rm=TRUE),max(lmt1,na.rm=TRUE))
+      ci.tau.2<-c(min(lmt2,na.rm=TRUE),max(lmt2,na.rm=TRUE))
+      ci.tau.3<-c(min(lmt3,na.rm=TRUE),max(lmt3,na.rm=TRUE))
+      
+      ci.tau<-list(ci.tau.1,ci.tau.2,ci.tau.3)
+    } else ci.tau<-NA
+  }
+  
+  
+  
+  if (no==4){
+    grid<-seq(from=min.grid,to=max.grid,by=step.grid)
+    zz<-0
+    fiti<-list()
+    tau1i<-tau2i<-tau3i<-tau4i<-list()
+    for (i in 1:(length(grid)-3)){
+      for (j in (i+1):(length(grid)-2)){
+        for (k in (j+1):(length(grid)-1)){
+          for (l in (k+1):(length(grid))){
+            zz=zz+1
+            tau1<-grid[i]
+            tau2<-grid[j]
+            tau3<-grid[k]
+            tau4<-grid[l]
+            tau1i[[zz]]<-tau1
+            tau2i[[zz]]<-tau2
+            tau3i[[zz]]<-tau3
+            tau4i[[zz]]<-tau4
+            data$U1<-ifelse(data$X-tau1<0,0, data$X-tau1)
+            data$U2<-ifelse(data$X-tau2<0,0, data$X-tau2)
+            data$U3<-ifelse(data$X-tau3<0,0, data$X-tau3)
+            data$U4<-ifelse(data$X-tau4<0,0, data$X-tau4)
+            fiti[[zz]]<-try(update(fit,formula = Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X+U1+U2+U3+U4,data=data,evaluate=TRUE),silent=TRUE)
+          } 
+        }}}
+    tau1i[[zz+1]]<-0
+    tau2i[[zz+1]]<-0
+    tau3i[[zz+1]]<-0
+    tau4i[[zz+1]]<-0
+    fiti[[zz+1]]<-fit
+    mm<-which.max(unlist(lapply(fiti,my.lrt)))
+    if (mm==zz+1) est.tau<-NA else {
+      est.tau1<-tau1i[[mm]]
+      est.tau2<-tau2i[[mm]]
+      est.tau3<-tau3i[[mm]]
+      est.tau4<-tau4i[[mm]]
+      est.tau<-c(est.tau1,est.tau2,est.tau3,est.tau4)
+    }
+    fito<-fiti[[mm]]
+    #CI
+    if (sum(!is.na(est.tau))>0){
+      lmt<-my.ci.limits(fito,fiti,no)
+      lmt1<-get_limit(tau1i,lmt)
+      lmt2<-get_limit(tau2i,lmt)
+      lmt3<-get_limit(tau3i,lmt)
+      lmt4<-get_limit(tau4i,lmt)
+      ci.tau.1<-c(min(lmt1,na.rm=TRUE),max(lmt1,na.rm=TRUE))
+      ci.tau.2<-c(min(lmt2,na.rm=TRUE),max(lmt2,na.rm=TRUE))
+      ci.tau.3<-c(min(lmt3,na.rm=TRUE),max(lmt3,na.rm=TRUE))
+      ci.tau.4<-c(min(lmt4,na.rm=TRUE),max(lmt4,na.rm=TRUE))
+      
+      ci.tau<-list(ci.tau.1,ci.tau.2,ci.tau.3,ci.tau.4)
+    } else ci.tau<-NA
+  }
+  
+  
+  
+  if (no==5){
+    grid<-seq(from=min.grid,to=max.grid,by=step.grid)
+    zz<-0
+    fiti<-list()
+    tau1i<-tau2i<-tau3i<-tau4i<-tau5i<-list()
+    for (i in 1:(length(grid)-4)){
+      for (j in (i+1):(length(grid)-3)){
+        for (k in (j+1):(length(grid)-2)){
+          for (l in (k+1):(length(grid)-1)){
+            for (m in (l+1):(length(grid))){
+              zz=zz+1
+              tau1<-grid[i]
+              tau2<-grid[j]
+              tau3<-grid[k]
+              tau4<-grid[l]
+              tau5<-grid[m]
+              tau1i[[zz]]<-tau1
+              tau2i[[zz]]<-tau2
+              tau3i[[zz]]<-tau3
+              tau4i[[zz]]<-tau4
+              tau5i[[zz]]<-tau5
+              data$U1<-ifelse(data$X-tau1<0,0, data$X-tau1)
+              data$U2<-ifelse(data$X-tau2<0,0, data$X-tau2)
+              data$U3<-ifelse(data$X-tau3<0,0, data$X-tau3)
+              data$U4<-ifelse(data$X-tau4<0,0, data$X-tau4)
+              data$U5<-ifelse(data$X-tau5<0,0, data$X-tau5)
+              fiti[[zz]]<-try(update(fit,formula = Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X+U1+U2+U3+U4+U5,data=data,evaluate=TRUE),silent=TRUE)
+            } }
+        }}}
+    tau1i[[zz+1]]<-0
+    tau2i[[zz+1]]<-0
+    tau3i[[zz+1]]<-0
+    tau4i[[zz+1]]<-0
+    tau5i[[zz+1]]<-0
+    fiti[[zz+1]]<-fit
+    mm<-which.max(unlist(lapply(fiti,my.lrt)))
+    if (mm==zz+1) est.tau<-NA else {
+      est.tau1<-tau1i[[mm]]
+      est.tau2<-tau2i[[mm]]
+      est.tau3<-tau3i[[mm]]
+      est.tau4<-tau4i[[mm]]
+      est.tau5<-tau5i[[mm]]
+      est.tau<-c(est.tau1,est.tau2,est.tau3,est.tau4,est.tau5)
+    }
+    fito<-fiti[[mm]]
+    #CI
+    if (sum(!is.na(est.tau))>0){
+      lmt<-my.ci.limits(fito,fiti,no)
+      lmt1<-get_limit(tau1i,lmt)
+      lmt2<-get_limit(tau2i,lmt)
+      lmt3<-get_limit(tau3i,lmt)
+      lmt4<-get_limit(tau4i,lmt)
+      lmt5<-get_limit(tau5i,lmt)
+      ci.tau.1<-c(min(lmt1,na.rm=TRUE),max(lmt1,na.rm=TRUE))
+      ci.tau.2<-c(min(lmt2,na.rm=TRUE),max(lmt2,na.rm=TRUE))
+      ci.tau.3<-c(min(lmt3,na.rm=TRUE),max(lmt3,na.rm=TRUE))
+      ci.tau.4<-c(min(lmt4,na.rm=TRUE),max(lmt4,na.rm=TRUE))
+      ci.tau.5<-c(min(lmt5,na.rm=TRUE),max(lmt5,na.rm=TRUE))
+      ci.tau<-list(ci.tau.1,ci.tau.2,ci.tau.3,ci.tau.4,ci.tau.5)
+    } else ci.tau<-NA
+  }
+  
+  
+  
+  list(est.tau=est.tau,fit=fito,ci.tau=ci.tau)
+}
+
+est.coef.grid<-function(fit){
+  cfs<-rep(NA,12)
+  cfsi<-coef(fit$fit)
+  cfs[1:length(cfsi)]<-cfsi
+  cfs
+  
+}
+
+est.location.grid<-function(fit){
+  cfs<-rep(NA,5)
+  cfsi<-fit$est.tau
+  cfs[1:length(cfsi)]<-cfsi
+  cfs
+}
+
+getci.grid<-function(fit){
+  mat<-matrix(NA,ncol=2,nrow=5)
+  for (i in 1:length(fit$ci.tau)){
+    mat[i,]<-fit$ci.tau[[i]]
+  }
+  mat
+}
+
+delta0=0.1
+delta1=0.5
+task="medium"
+no=2
+alter=FALSE
+n=100
+model="linear"
+var.sigma=2
+phi.beta=20
+intercept=1
+mean_y=50
+
+
+
+if (model=="linear"|model=="quantile") int=intercept else {
+  
+  if (model=="poisson"){
+    int<-get_intercept_poisson(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  } else { 
+    int<-get_intercept_logistic(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  }
+}  
+
+
+mydata<-mysim_data(n=n,dif=task,no=no, delta0=delta0,delta1=delta1,alter=alter,model=model,intercept=int,var.sigma=var.sigma,phi.beta = phi.beta)
+
+# hist(mydata$data$Y)
+#boxplot(mydata$data$Y~mydata$data$X)
+mnY<-mean(mydata$data$Y)
+sdY<-sd(mydata$data$Y)
+
+if (model=="linear") fit<-try(lm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data),silent=TRUE)
+if (model=="logistic") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = binomial(link="logit"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="poisson") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = poisson(link="log"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="beta") fit<-try(betareg(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,type="BR",link="logit") ,silent=TRUE)
+if (model=="quantile") fit <- try(rq(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,tau= 0.5 ),silent=TRUE)
+
+
+
+fits1<-system.time(segmented.default(fit,seg.Z=~X,npsi=no,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2<-system.time(segmented.default(fit,seg.Z=~X,psi=mydata$chpoints,control=seg.control(alpha=0.01))) 
+
+fits1r<-system.time(segmented.default.rok(fit,seg.Z=~X,npsi=no,lambda=10,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2r<-system.time(segmented.default.rok(fit,seg.Z=~X,psi=mydata$chpoints,lambda=10,control=seg.control(alpha=0.01))) 
+
+fits3<-system.time(my.grid(fit,no=no,data=mydata$data,min.grid=1,max.grid=29,step.grid=1))
+
+
+
+
+library(microbenchmark)
+
+
+# Assuming 'mydata' and 'fit' are predefined as in your context
+
+# Define the benchmark tests
+benchmark_tests <- microbenchmark(
+  fits1 = segmented::segmented(fit, seg.Z = ~X, npsi = no, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2 = segmented::segmented(fit, seg.Z = ~X, psi = mydata$chpoints, control = seg.control(alpha = 0.01)),
+  fits1r = segmented.default.rok(fit, seg.Z = ~X, npsi = no, lambda = 10, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2r = segmented.default.rok(fit, seg.Z = ~X, psi = mydata$chpoints, lambda = 10, control = seg.control(alpha = 0.01)),
+  fits3 = my.grid(fit, no = no, data = mydata$data, min.grid = 1, max.grid = 29, step.grid = 1),
+  times = 10
+)
+
+# Print results in seconds
+print(benchmark_tests, unit = "s")
+model="quantile"
+
+if (model=="linear"|model=="quantile") int=intercept else {
+  
+  if (model=="poisson"){
+    int<-get_intercept_poisson(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  } else { 
+    int<-get_intercept_logistic(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  }
+}  
+
+
+mydata<-mysim_data(n=n,dif=task,no=no, delta0=delta0,delta1=delta1,alter=alter,model=model,intercept=int,var.sigma=var.sigma,phi.beta = phi.beta)
+
+# hist(mydata$data$Y)
+#boxplot(mydata$data$Y~mydata$data$X)
+mnY<-mean(mydata$data$Y)
+sdY<-sd(mydata$data$Y)
+
+if (model=="linear") fit<-try(lm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data),silent=TRUE)
+if (model=="logistic") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = binomial(link="logit"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="poisson") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = poisson(link="log"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="beta") fit<-try(betareg(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,type="BR",link="logit") ,silent=TRUE)
+if (model=="quantile") fit <- try(rq(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,tau= 0.5 ),silent=TRUE)
+
+
+
+fits1<-system.time(segmented.default(fit,seg.Z=~X,npsi=no,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2<-system.time(segmented.default(fit,seg.Z=~X,psi=mydata$chpoints,control=seg.control(alpha=0.01))) 
+
+fits1r<-system.time(segmented.default.rok(fit,seg.Z=~X,npsi=no,lambda=10,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2r<-system.time(segmented.default.rok(fit,seg.Z=~X,psi=mydata$chpoints,lambda=10,control=seg.control(alpha=0.01))) 
+
+fits3<-system.time(my.grid(fit,no=no,data=mydata$data,min.grid=1,max.grid=29,step.grid=1))
+
+#################################################################################################################
+
+
+library(microbenchmark)
+
+
+# Assuming 'mydata' and 'fit' are predefined as in your context
+
+# Define the benchmark tests
+benchmark_tests <- microbenchmark(
+  fits1 = segmented::segmented(fit, seg.Z = ~X, npsi = no, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2 = segmented::segmented(fit, seg.Z = ~X, psi = mydata$chpoints, control = seg.control(alpha = 0.01)),
+  fits1r = segmented.default.rok(fit, seg.Z = ~X, npsi = no, lambda = 10, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2r = segmented.default.rok(fit, seg.Z = ~X, psi = mydata$chpoints, lambda = 10, control = seg.control(alpha = 0.01)),
+  fits3 = my.grid(fit, no = no, data = mydata$data, min.grid = 1, max.grid = 29, step.grid = 1),
+  times = 10
+)
+
+# Print results in seconds
+print(benchmark_tests, unit = "s")
+
+delta0=0.1
+delta1=0.5
+task="medium"
+no=2
+alter=FALSE
+n=1000
+
+var.sigma=2
+phi.beta=20
+intercept=1
+mean_y=50
+
+
+
+if (model=="linear"|model=="quantile") int=intercept else {
+  
+  if (model=="poisson"){
+    int<-get_intercept_poisson(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  } else { 
+    int<-get_intercept_logistic(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  }
+}  
+
+
+mydata<-mysim_data(n=n,dif=task,no=no, delta0=delta0,delta1=delta1,alter=alter,model=model,intercept=int,var.sigma=var.sigma,phi.beta = phi.beta)
+
+# hist(mydata$data$Y)
+#boxplot(mydata$data$Y~mydata$data$X)
+mnY<-mean(mydata$data$Y)
+sdY<-sd(mydata$data$Y)
+
+if (model=="linear") fit<-try(lm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data),silent=TRUE)
+if (model=="logistic") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = binomial(link="logit"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="poisson") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = poisson(link="log"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="beta") fit<-try(betareg(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,type="BR",link="logit") ,silent=TRUE)
+if (model=="quantile") fit <- try(rq(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,tau= 0.5 ),silent=TRUE)
+
+
+
+fits1<-system.time(segmented.default(fit,seg.Z=~X,npsi=no,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2<-system.time(segmented.default(fit,seg.Z=~X,psi=mydata$chpoints,control=seg.control(alpha=0.01))) 
+
+fits1r<-system.time(segmented.default.rok(fit,seg.Z=~X,npsi=no,lambda=10,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2r<-system.time(segmented.default.rok(fit,seg.Z=~X,psi=mydata$chpoints,lambda=10,control=seg.control(alpha=0.01))) 
+
+fits3<-system.time(my.grid(fit,no=no,data=mydata$data,min.grid=1,max.grid=29,step.grid=1))
+
+
+
+
+library(microbenchmark)
+
+
+# Assuming 'mydata' and 'fit' are predefined as in your context
+
+# Define the benchmark tests
+benchmark_tests <- microbenchmark(
+  fits1 = segmented::segmented(fit, seg.Z = ~X, npsi = no, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2 = segmented::segmented(fit, seg.Z = ~X, psi = mydata$chpoints, control = seg.control(alpha = 0.01)),
+  fits1r = segmented.default.rok(fit, seg.Z = ~X, npsi = no, lambda = 10, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2r = segmented.default.rok(fit, seg.Z = ~X, psi = mydata$chpoints, lambda = 10, control = seg.control(alpha = 0.01)),
+  fits3 = my.grid(fit, no = no, data = mydata$data, min.grid = 1, max.grid = 29, step.grid = 1),
+  times = 10
+)
+
+# Print results in seconds
+print(benchmark_tests, unit = "s")
+
+
+
+delta0=0.1
+delta1=0.5
+task="medium"
+no=2
+alter=FALSE
+n=10000
+model="linear"
+var.sigma=2
+phi.beta=20
+intercept=1
+mean_y=50
+
+
+
+if (model=="linear"|model=="quantile") int=intercept else {
+  
+  if (model=="poisson"){
+    int<-get_intercept_poisson(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  } else { 
+    int<-get_intercept_logistic(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  }
+}  
+
+
+mydata<-mysim_data(n=n,dif=task,no=no, delta0=delta0,delta1=delta1,alter=alter,model=model,intercept=int,var.sigma=var.sigma,phi.beta = phi.beta)
+
+# hist(mydata$data$Y)
+#boxplot(mydata$data$Y~mydata$data$X)
+mnY<-mean(mydata$data$Y)
+sdY<-sd(mydata$data$Y)
+
+if (model=="linear") fit<-try(lm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data),silent=TRUE)
+if (model=="logistic") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = binomial(link="logit"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="poisson") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = poisson(link="log"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="beta") fit<-try(betareg(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,type="BR",link="logit") ,silent=TRUE)
+if (model=="quantile") fit <- try(rq(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,tau= 0.5 ),silent=TRUE)
+
+
+
+fits1<-system.time(segmented.default(fit,seg.Z=~X,npsi=no,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2<-system.time(segmented.default(fit,seg.Z=~X,psi=mydata$chpoints,control=seg.control(alpha=0.01))) 
+
+fits1r<-system.time(segmented.default.rok(fit,seg.Z=~X,npsi=no,lambda=10,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2r<-system.time(segmented.default.rok(fit,seg.Z=~X,psi=mydata$chpoints,lambda=10,control=seg.control(alpha=0.01))) 
+
+fits3<-system.time(my.grid(fit,no=no,data=mydata$data,min.grid=1,max.grid=29,step.grid=1))
+
+
+
+
+library(microbenchmark)
+
+
+# Assuming 'mydata' and 'fit' are predefined as in your context
+
+# Define the benchmark tests
+benchmark_tests <- microbenchmark(
+  fits1 = segmented::segmented(fit, seg.Z = ~X, npsi = no, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2 = segmented::segmented(fit, seg.Z = ~X, psi = mydata$chpoints, control = seg.control(alpha = 0.01)),
+  fits1r = segmented.default.rok(fit, seg.Z = ~X, npsi = no, lambda = 10, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2r = segmented.default.rok(fit, seg.Z = ~X, psi = mydata$chpoints, lambda = 10, control = seg.control(alpha = 0.01)),
+  fits3 = my.grid(fit, no = no, data = mydata$data, min.grid = 1, max.grid = 29, step.grid = 1),
+  times = 10
+)
+
+# Print results in seconds
+print(benchmark_tests, unit = "s")
+
+
+
+##########################################quantile
+
+delta0=0.1
+delta1=0.5
+task="medium"
+no=2
+alter=FALSE
+n=10000
+model="quantile"
+var.sigma=2
+phi.beta=20
+intercept=1
+mean_y=50
+
+
+
+if (model=="linear"|model=="quantile") int=intercept else {
+  
+  if (model=="poisson"){
+    int<-get_intercept_poisson(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  } else { 
+    int<-get_intercept_logistic(mean_y,delta0,delta1,get.tau(task=task,no=no),alter=alter) 
+  }
+}  
+
+
+mydata<-mysim_data(n=n,dif=task,no=no, delta0=delta0,delta1=delta1,alter=alter,model=model,intercept=int,var.sigma=var.sigma,phi.beta = phi.beta)
+
+# hist(mydata$data$Y)
+#boxplot(mydata$data$Y~mydata$data$X)
+mnY<-mean(mydata$data$Y)
+sdY<-sd(mydata$data$Y)
+
+if (model=="linear") fit<-try(lm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data),silent=TRUE)
+if (model=="logistic") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = binomial(link="logit"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="poisson") fit<-try(glm(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,family = poisson(link="log"),method="brglmFit",type="AS_mean"),silent=TRUE)
+if (model=="beta") fit<-try(betareg(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,type="BR",link="logit") ,silent=TRUE)
+if (model=="quantile") fit <- try(rq(Y~Z.Z1+Z.Z2+Z.Z3+Z.Z4+Z.Z5+X,data=mydata$data,tau= 0.5 ),silent=TRUE)
+
+
+
+fits1<-system.time(segmented.default(fit,seg.Z=~X,npsi=no,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2<-system.time(segmented.default(fit,seg.Z=~X,psi=mydata$chpoints,control=seg.control(alpha=0.01))) 
+
+fits1r<-system.time(segmented.default.rok(fit,seg.Z=~X,npsi=no,lambda=10,control=seg.control(n.boot=50,alpha=0.01)) )
+fits2r<-system.time(segmented.default.rok(fit,seg.Z=~X,psi=mydata$chpoints,lambda=10,control=seg.control(alpha=0.01))) 
+
+fits3<-system.time(my.grid(fit,no=no,data=mydata$data,min.grid=1,max.grid=29,step.grid=1))
+
+
+
+
+library(microbenchmark)
+
+
+# Assuming 'mydata' and 'fit' are predefined as in your context
+
+# Define the benchmark tests
+benchmark_tests <- microbenchmark(
+  fits1 = segmented::segmented(fit, seg.Z = ~X, npsi = no, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2 = segmented::segmented(fit, seg.Z = ~X, psi = mydata$chpoints, control = seg.control(alpha = 0.01)),
+  fits1r = segmented.default.rok(fit, seg.Z = ~X, npsi = no, lambda = 10, control = seg.control(n.boot = 50, alpha = 0.01)),
+  fits2r = segmented.default.rok(fit, seg.Z = ~X, psi = mydata$chpoints, lambda = 10, control = seg.control(alpha = 0.01)),
+  fits3 = my.grid(fit, no = no, data = mydata$data, min.grid = 1, max.grid = 29, step.grid = 1),
+  times = 10
+)
+
+# Print results in seconds
+print(benchmark_tests, unit = "s")

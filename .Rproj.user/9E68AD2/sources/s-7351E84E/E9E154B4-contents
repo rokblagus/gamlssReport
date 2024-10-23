@@ -18,11 +18,11 @@ library(nlme)
 
 make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param="precision",link_fun=function(x) 1/(1+exp(-x))){
   if (is.null(match.arg(param,c("precision","variance")))) stop("param needs to be one of: precision,variance")
-  
+
   q<-ncol(psi)
-  if (param=="precision") cc<-(nu-q-1)/q  
+  if (param=="precision") cc<-(nu-q-1)/q
   if (param=="variance") cc<-(nu+q+1)/q
-  
+
   cc<-max(c(floor(cc),1))
   if (param=="precision") true<-solve(psi)/cc
   if (param=="variance") true<-psi/cc
@@ -31,13 +31,13 @@ make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param
   for (j in 1:q){
     ui[[j]]<-sqrt(ee$values[j])*ee$vectors[,j]
   }
-  
+
   #u1<-sqrt(ee$values[1])*ee$vectors[,1]
   #u2<-sqrt(ee$values[2])*ee$vectors[,2]
-  
+
   #matrix(u1,ncol=1)%*%matrix(u1,nrow=1)+matrix(u2,ncol=1)%*%matrix(u2,nrow=1)
   pi<-list()
-  
+
   for (j in 1:length(ui)){
     I<-diag(rep(1,length(ui[[j]])))
     #pi[[j]]<-1/(1+exp(-I%*%matrix(ui[[j]],ncol=1)))
@@ -45,27 +45,27 @@ make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param
   }
   #pi0=exp(u1[1])/(1+exp(u1[1]))
   #pi1=exp(u1[2])/((1-pi0)/pi0+exp(u1[2]))
-  
+
   #pi02=exp(u2[1])/(1+exp(u2[1]))
   #pi12=exp(u2[2])/((1-pi02)/pi02+exp(u2[2]))
-  
-  
+
+
   #Y<-c(pi0,pi1,pi02,pi12)*1e8 #the constant improves the convergence!
   Y<-unlist(pi)
-  
+
   #id<-c(1,1,2,2)
   id<-rep(1:q,each=q)
   n<-rep(const,length(id))
-  
+
   Zi<-matrix(0,ncol=q,nrow=q)
-  
+
   for (j in 1:q){
     Zi[j,j]<-1
   }
   for (j in 1:q){
     if (j==1) Z=Zi else Z<-rbind(Z,Zi)
   }
-  
+
   fact<-cc
   if (fact>1){
     Y<-rep(Y,fact)
@@ -75,16 +75,16 @@ make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param
       if (j==1) Z=Zi else Z<-rbind(Z,Zi)
     }
   }
-  
+
   #M<-rep(1/q,length(Y))
   #Z<-rbind(c(1,0),c(1,1),c(1,0),c(1,1))
   #data0<-list(Y=Y,grouping=id,nn=n,Z=Z,M=M)
   data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
-  
+
   #fit0<-glmmTMB(cbind(Y,nn-Y)~-1+(-1+Z|grouping),weights=M,data=data0,family=binomial)
   #fit0<-glmmTMB(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
   #est.vcv<-VarCorr(fit0)$cond$grouping[1:q,1:q]
-  
+
   list(data=data0)#,fit=fit0,vcv.re=est.vcv)
 }
 
@@ -93,34 +93,34 @@ make_pseudo_data_rand_eigen_general_psi_v3_glmm<-function(psi,nu,const=1e8,param
 
 make_pseudo_data_rand_eigen_inter_alpha_beta<-function(alpha,beta,param="psi",const=1e8){
   if (is.null(match.arg(param,c("psi","sigma2","logsigma2")))) stop("param needs to be one of: psi,sigma2,logsigma2")
-  
+
   if (param=="psi") N<-max(c(floor(2*(alpha-1)),1))
   if (param=="sigma2") N<-max(c(floor(2*(alpha+1)),1))
   if (param=="logsigma2") N<-max(c(floor(2*(alpha)),1))
-  
+
   var.int<-beta*2/N
   fact<-N
-  
+
   true=matrix(var.int,ncol=1,nrow=1)
-  
+
   ee<-eigen(true,TRUE)
   u1<-sqrt(ee$values[1])*ee$vectors[,1]
   #u2<-sqrt(ee$values[2])*ee$vectors[,2]
-  
+
   #matrix(u1,ncol=1)%*%matrix(u1,nrow=1)+matrix(u2,ncol=1)%*%matrix(u2,nrow=1)
-  
-  
+
+
   pi0=exp(u1[1])
-  
+
   Y<-rep(c(pi0),fact) #the constant improves the convergence!
   n<-rep(rep(const,1),fact)
   id<-c(1:fact)
   Z<-matrix(rep(1,fact),ncol=1)
   data0<-list(Y=Y,grouping=id,nn=n,Z=Z)
-  
+
   #fit0<-glmer(cbind(Y,nn-Y)~-1+(-1+Z|grouping),data=data0,family=binomial)
   #est.vcv<-VarCorr(fit0)$grouping[1:2,1:2]
-  
+
   list(data=data0)#,fit=fit0,vcv.re=est.vcv)
 }
 
@@ -197,9 +197,9 @@ Ya<-c(Y,pd$data$Y)
 xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupinga,weights=weightsa)
 
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = gaussian(link = "identity"),
-                
+
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:2],betad=fittm$sdr$par.fixed[3],theta=fittm$sdr$par.fixed[4:6]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -229,8 +229,8 @@ lin_devTMB <- function(par) {
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
-  lin_dev_tmp(par) - pen 
+
+  lin_dev_tmp(par) - pen
 }
 
 
@@ -251,12 +251,12 @@ d3_pen<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.
 
 
 ##lmer (tricky! not yet done, seems okish for the augmented analysis but its tricky for the penalty!)
-#need to find a way to make the results comparable with tmb (SEs!) 
+#need to find a way to make the results comparable with tmb (SEs!)
 
 fit_lmer<-lmer(Y~-1+X+(-1+Z|grouping),data=xdf,REML=FALSE,
           control = lmerControl(optimizer = "optimwrap",optCtrl=list(method=optimizer)))
 
- 
+
 fit_aug_lmer<-lmer(Y~-1+X+(-1+Z|grouping),data=xdfa,REML=FALSE,
               weights=weights,start=list(fixef=fit_lmer@beta,theta=fit_lmer@theta),
               control = lmerControl(optimizer = "optimwrap",optCtrl=list(method=optimizer)))
@@ -447,7 +447,7 @@ res.pd.lmer<-c(paste(
 
 
 
- 
+
 cfs<-c(fixef(fit_lme),attributes(fit_lme$apVar)$Par[4],attributes(fit_lme$apVar)$Par[1:3])
 ses<-c(sqrt(diag(vcov(fit_lme))),sqrt(diag(fit_lme$apVar))[4],sqrt(diag(fit_lme$apVar))[1:3]   )
 
@@ -492,9 +492,9 @@ Ya<-c(Y,pd$data$Y)
 xdfa<-list(Y=Ya,X=Xa,Z=Za,grouping=groupinga,weights=weightsa)
 
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = gaussian(link = "identity"),
-                
+
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:2],betad=fittm$sdr$par.fixed[3],theta=fittm$sdr$par.fixed[4:6]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -515,8 +515,8 @@ lin_devTMB <- function(par) {
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<--(nu+2+1)/2*log(det(D))-1/2*sum(diag(psi%*%Dm   ))
-  
-  lin_dev_tmp(par) - pen 
+
+  lin_dev_tmp(par) - pen
 }
 
 
@@ -537,7 +537,7 @@ d3_pen<-deltaMethod(m,g.="theta3/sqrt(1+theta3^2)*exp(theta1)*exp(theta2)",vcov.
 
 
 ##lmer (tricky! not yet done, seems okish for the augmented analysis but its tricky for the penalty!)
-#need to find a way to make the results comparable with tmb (SEs!) 
+#need to find a way to make the results comparable with tmb (SEs!)
 
 fit_lmer<-lmer(Y~-1+X+(-1+Z|grouping),data=xdf,REML=FALSE,
                control = lmerControl(optimizer = "optimwrap",optCtrl=list(method=optimizer)))
@@ -925,9 +925,9 @@ xdfa3<-list(X=Xa,Z=Za,grouping=groupinga,Y=Ya,weights=weightsa,n=na)
 #fita<-glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping),family=binomial,data=xdfa)
 
 tmp2 <- glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
-                
+
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
 )
 
@@ -940,7 +940,7 @@ fit2 <- glmmTMB:::fitTMB(tmp2)
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
                 weights = weights,
                 data=xdfa2, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
 )
 #yes, now its the same
@@ -949,7 +949,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
 tmp3 <- glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
                 weights = weights,
                 data=xdfa3, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
 )
 #no, this is not the same (re for pd ok, but not for orig!)
@@ -967,12 +967,12 @@ bin_devTMB <- function(par) {
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
+
   bin_dev_tmp(par) -pen # brez 2* !!!
 }
 
 
-bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE) 
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE)
 
 # glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
 #         data=xdfa)
@@ -982,13 +982,13 @@ bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",
 # glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
 #         weights = weights,
 #         data=xdfa3)
-# 
+#
 # glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
 #         data=xdfa)
 # glmer(Y~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
 #         weights = weights,
 #         data=xdfa2, glmerControl(optimizer="bobyqa"))
-# 
+#
 # bin_optim_TMB$par
 # optim(par = rep(0,length(fittm$sdr$par.fixed)), bin_devTMB, method="L-BFGS-B",hessian=TRUE)$par
 # optim(par = fittm$sdr$par.fixed, bin_devTMB, method="Nelder-Mead",hessian=TRUE)$par
@@ -1074,9 +1074,9 @@ fit<-glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping),family=binomial,data=xdf,control=gl
 
 
 
- 
+
 glmer_fit_a <- glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
-                
+
                 data=xdfa,start=list(fixef=fit@beta,theta=fit@theta),
                 control=glmerControl(optimizer="optimwrap",optCtrl=list(method="L-BFGS-B")) )
 
@@ -1105,11 +1105,11 @@ bin_dev <- function(par) {
   D<-L%*%t(L)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
+
   bin_dev_tmp(par) -2*pen #nujno more bit 2*, ker delamo v sd param! ??Yes, it seems so!
 }
 
-bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method="L-BFGS-B",hessian=TRUE) 
+bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method="L-BFGS-B",hessian=TRUE)
 
 
 m<-bin_optim$par[1:3]
@@ -1154,7 +1154,7 @@ names(m)<-paste("theta",1:3,sep="")
 vr<-solve(fit@optinfo$derivs$Hessian)[1:3,1:3]
 rownames(vr)<-colnames(vr)<-names(m)
 
- 
+
 d1_glmer<-deltaMethod(m,g.="theta1^2",vcov.=vr)
 d2_glmer<-deltaMethod(m,g.="(theta2^2+theta3^2)",vcov.=vr)
 d3_glmer<-deltaMethod(m,g.="(theta1*theta2)",vcov.=vr)
@@ -1214,9 +1214,9 @@ xdfa<-list(X=Xa,Z=Za,grouping=groupinga,Y=Ya,n=na)
 #fita<-glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping),family=binomial,data=xdfa)
 
 tmp2 <- glmmTMB(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
-                
+
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method="L-BFGS-B"))
 )
 
@@ -1235,12 +1235,12 @@ bin_devTMB <- function(par) {
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<--(nu+2+1)/2*log(det(D))-1/2*sum(diag(psi%*%Dm   ))
-  
+
   bin_dev_tmp(par) -pen # brez 2* !!!
 }
 
 
-bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE) 
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method="L-BFGS-B",hessian=TRUE)
 
 m<-bin_optim_TMB$par[5:7]
 names(m)<-paste(names(m),1:3,sep="")
@@ -1318,7 +1318,7 @@ colnames(res1)<-c("ML_TMB","pseudo_TMB","penalty_TMB")
 ####glmer
 
 glmer_fit_a <- glmer(cbind(Y,n-Y)~-1+X+(-1+Z|grouping), family = binomial(link = "logit"),
-                     
+
                      data=xdfa,start=list(fixef=fit@beta,theta=fit@theta),
                      control=glmerControl(optimizer="optimwrap",optCtrl=list(method="L-BFGS-B")) )
 
@@ -1333,11 +1333,11 @@ bin_dev <- function(par) {
   D<-L%*%t(L)
   Dm<-solve(D)
   pen<--(nu+2+1)/2*log(det(D))-1/2*sum(diag(psi%*%Dm   ))
-  
+
   bin_dev_tmp(par) -2*pen #nujno more bit 2*, ker delamo v sd param! ??Yes, it seems so!
 }
 
-bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method="L-BFGS-B",hessian=TRUE) 
+bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method="L-BFGS-B",hessian=TRUE)
 
 
 m<-bin_optim$par[1:3]
@@ -1490,12 +1490,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fit$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[3])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((4-1)*log(x1)-(4*(x1)))
-  
-   
+
+
   bin_dev_tmp(par) -pen1  # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fit$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fit$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #option with offset is closer, although here the option with weights is also reasonable (unlike the real data example): RE for PD are the same, but for the original they are again not the same!
 
 #seems ok, again it seems as if the offset trick is in fact what we need!
@@ -1523,6 +1523,8 @@ alpha2=2
 beta2=2
 
 
+(full_mod1 <- glmer(TICKS~YEAR+HEIGHT_C+(1|BROOD)+(1|INDEX)+(1|LOCATION), family="poisson",data=grouseticks)) #note that identity link does not work here; in principle we could howeve stil use our approach, but we would than need to rely on the weights.
+(full_mod1 <- glmer(TICKS~YEAR+HEIGHT_C+(1|BROOD)+(1|INDEX)+(YEAR|LOCATION), family="poisson",data=grouseticks)) #note that identity link does not work here; in principle we could howeve stil use our approach, but we would than need to rely on the weights.
 
 
 X<-model.matrix(TICKS~YEAR+HEIGHT_C,data=grouseticks)
@@ -1544,7 +1546,7 @@ xdf<-list(Y=Y,X=X,Z1=Z1,Z2=Z2,Z3=Z3,grouping1=grouping1,grouping2=grouping2,grou
 fittm<-glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),data=xdf,family=poisson,
                control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
 
- 
+
 
 
 
@@ -1555,7 +1557,7 @@ pd2<-make_pseudo_data_rand_eigen_inter_alpha_beta(alpha=alpha2,beta=beta2,param=
 
 
 
- 
+
 Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(X),nrow=nrow(pd2$data$Z)))
 Z1a<-rbind(Z1,pd1$data$Z,matrix(0,ncol=ncol(Z1),nrow=nrow(pd2$data$Z)))
 Z2a<-rbind(Z2,matrix(0,ncol=ncol(Z2),nrow=nrow(pd1$data$Z)),matrix(0,ncol=ncol(Z2),nrow=nrow(pd2$data$Z)))
@@ -1591,7 +1593,7 @@ xdfa2$weights2<-xdfa2$weights/constp
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -1606,25 +1608,25 @@ tmp2 <- glmmTMB(Y3~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), f
                 weights=weights2,offset=ofset2,
                 data=xdfa2, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
                       control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
-) 
+)
 tmp3 <- glmmTMB(Y2~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
                 offset=ofset2,weights=weights2,
                 data=xdfa2, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 ) #using Y2 or Y3 does not make a difference, tmp3 and fit2 are rather similar
 #note how constp matters: even with 10 we dont see a diff betwen tmp2 and tmp3, but we see a huge diff between fit2 REs for PD seem fine!
 
 tmp4 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
-          
+
                 offset=ofset,weights=weights,
                 data=xdfa3, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 #no, its not the same (especially tmp3)! again the issue seems to be estimation of REs for nonPD data
 #why does the trick via offesting work at all?
-#I guess the simulated example below explains this. 
+#I guess the simulated example below explains this.
 
 
 
@@ -1632,7 +1634,7 @@ tmp4 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), fa
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = genpois,
                 offset=ofset,dispformula = ~-1,
                 data=xdfa, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 ) #this is close but not the same, it is very close (maybe even closer) to the penalized results #note that for orig we got exactly the same, my guess is large weigths!
 #yes, if I use smaller weight its the same
@@ -1640,7 +1642,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), fa
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = genpois,
                 dispformula = ~offset(log(weights))-1,
                 data=xdfa2, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 #this is not giving correct REs (maybe he internally rounds Y)
@@ -1648,7 +1650,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), fa
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = genpois,
                 dispformula = ~offset(log(weights))-1,
                 data=xdfa3, start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -1658,16 +1660,16 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[5])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
+
   x2<- 1/exp(par[7])^2
   pen2<-((alpha2-1)*log(x2)-(beta2*(x2)))
-  
+
   bin_dev_tmp(par) -pen1-pen2  # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
- 
- 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
+
+
 res.ml<-paste(
   round(fittm$sdr$par.fixed,3),
   paste("(",round(sqrt(diag(fittm$sdr$cov.fixed)),3),")",sep="")
@@ -1771,22 +1773,22 @@ fitw2<-glmer(YY~offset(of)-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|groupi
 #           data=xdf)
 
 
-glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
                     family = poisson(link="log"),
                                         data=xdfa,start=list(fixef=fit@beta,theta=fit@theta),
                   control=glmerControl(optimizer="optimwrap",optCtrl=list(method=optimizer_glmer)) )
 
-#glmer_fit_a_v2 <- glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+#glmer_fit_a_v2 <- glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
  #                    weights=weights,family = poisson(link="log"),
   #                   data=xdfa2,start=list(fixef=fit@beta,theta=fit@theta),
    #                  control=glmerControl(optimizer="optimwrap",optCtrl=list(method="Nelder-Mead")) )
 #no not the same (it doesnt even work!) I guess due to noninteger Y!
-glmer_fit_a_v2 <- glmer(Y2~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+glmer_fit_a_v2 <- glmer(Y2~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
                         weights=weights2,offset = ofset2,family = poisson(link="log"),
                         data=xdfa2,start=list(fixef=fit@beta,theta=fit@theta),
                         control=glmerControl(optimizer="optimwrap",optCtrl=list(method=optimizer_glmer)) )
 
-#glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+#glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
  #                    family = poisson(link="log"),
   #                   data=xdfa )
  #is this behaviour only due to this being mixed model?
@@ -1825,19 +1827,19 @@ bin_dev_tmp <-glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3)
 
 
 bin_dev <- function(par) {
-   
+
   x1 <-  1/(par[2]^2) #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
+
   x2<- 1/(par[3]^2)
   pen2<-((alpha2-1)*log(x2)-(beta2*(x2)))
-  
-  
+
+
   bin_dev_tmp(par) -2*pen1-2*pen2 #nujno more bit 2*, ker delamo v sd param! ??Yes, it seems so!
 }
 
-bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method=optimizer_glmer,hessian=TRUE) 
- 
+bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method=optimizer_glmer,hessian=TRUE)
+
 res.glmer.cf<-fit@optinfo$val
 res.glmer.se<-sqrt(diag(solve(fit@optinfo$derivs$Hessian)))
 
@@ -1951,7 +1953,7 @@ xdfa2<-list(Y=Ya,weights=weightsa,X=Xa,Z1=Z1a,Z2=Z2a,Z3=Z3a,grouping1=grouping1a
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), family = poisson,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:4],theta=fittm$sdr$par.fixed[5:7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -1967,14 +1969,14 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  exp(par[5])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-(-(alpha1+1)*log(x1)-(beta1/(x1)))
-  
+
   x2<- exp(par[7])^2
   pen2<-(-(alpha2+1)*log(x2)-(beta2/(x2)))
-  
+
   bin_dev_tmp(par) -pen1-pen2  # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 
 res.pd<-paste(
   round(fit2$sdr$par.fixed,3),
@@ -2052,13 +2054,13 @@ fit<-glmer(Y~-1+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),family=p
  #          data=xdf)
 
 
-glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
                     family = poisson(link="log"),
                                         data=xdfa,start=list(fixef=fit@beta,theta=fit@theta),
                   control=glmerControl(optimizer="optimwrap",optCtrl=list(method=optimizer_glmer)) )
 
 
-#glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3), 
+#glmer_fit_a <- glmer(Y~-1+offset(ofset)+X+(-1+Z1|grouping1)+(-1+Z2|grouping2)+(-1+Z3|grouping3),
  #                    family = poisson(link="log"),
   #                   data=xdfa )
 
@@ -2077,17 +2079,17 @@ bin_dev <- function(par) {
 
   x1 <-  (par[2])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-(-(alpha1+1)*log(x1)-(beta1/(x1)))
-  
+
   x2<- (par[3])^2
   pen2<-(-(alpha2+1)*log(x2)-(beta2/(x2)))
-  
+
   bin_dev_tmp(par) -2*pen1-2*pen2  # brez 2* !!!
-  
-  
+
+
   }
 
-bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method=optimizer_glmer,hessian=TRUE) 
-#bin_optim <- optim(par = c(glmer_fit_a@theta,glmer_fit_a@beta), bin_dev, method="Nelder-Mead",hessian=TRUE) 
+bin_optim <- optim(par = c(fit@theta,fit@beta), bin_dev, method=optimizer_glmer,hessian=TRUE)
+#bin_optim <- optim(par = c(glmer_fit_a@theta,glmer_fit_a@beta), bin_dev, method="Nelder-Mead",hessian=TRUE)
 
 res.glmer.cf<-fit@optinfo$val
 res.glmer.se<-sqrt(diag(solve(fit@optinfo$derivs$Hessian)))
@@ -2191,26 +2193,26 @@ aidss$w<-round(runif(nrow(aidss))*500)+1
 aidss$Y2<-aidss$CD4*aidss$w
 aidss$of<-log(aidss$w)
 
-fit<-glmer(CD4~obstime + drug + obstime:drug + 
+fit<-glmer(CD4~obstime + drug + obstime:drug +
                (1  | patient), data = aidss,family=Gamma(link="log"))
 
-fit2<-glmer(Y2~offset(of)+obstime + drug + obstime:drug + 
+fit2<-glmer(Y2~offset(of)+obstime + drug + obstime:drug +
                (1  | patient), data = aidss,family=Gamma(link="log"))
 
 #this is the same, that is why we cannt use the same trick to implement the weights as in poisson, but this also means we dont need to adjust the weights when we make offset
 
-fit3<-glmer(Y2~offset(of)+obstime + drug + obstime:drug + 
+fit3<-glmer(Y2~offset(of)+obstime + drug + obstime:drug +
               (1  | patient),weights=w, data = aidss,family=Gamma(link="log"))
-fit4<-glmer(CD4~obstime + drug + obstime:drug + 
+fit4<-glmer(CD4~obstime + drug + obstime:drug +
              (1  | patient),weights=w, data = aidss,family=Gamma(link="log"))
 #this (fit3,fit4) does not work!
 
 ####
 
-fit<-glmmTMB(CD4~obstime + drug + obstime:drug + 
+fit<-glmmTMB(CD4~obstime + drug + obstime:drug +
                 (1 + obstime | patient), data = aidss,family=Gamma(link="inverse"))
 
-#fit<-glmer(CD4~obstime + drug + obstime:drug + 
+#fit<-glmer(CD4~obstime + drug + obstime:drug +
  #              (1 + obstime | patient), data = aidss,family=Gamma(link="inverse"))
 #glmer does not work for this example
 
@@ -2229,13 +2231,13 @@ grouping<-as.numeric(as.factor(aidss$patient))
 
 xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
 
-fit.tmb<-glmmTMB(Y~X-1 + 
+fit.tmb<-glmmTMB(Y~X-1 +
                (Z-1 | grouping), data = xdf,family=Gamma(link="inverse"),
                control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
 
 
 
- 
+
 
 Ya<-c(Y,d2222$data$Y3)
 Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(d2222$data$Z)))
@@ -2254,7 +2256,7 @@ fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(lin
 fit_aug$data.tmb$doffset <- log(xdfa$weights)
 fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
 #should be the same as
-fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(link="inverse"), 
+fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(link="inverse"),
                  dispformula = ~offset(log(weights)),
                  control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)),
                  start=list(beta=fit.tmb$sdr$par.fixed[1:4],betad=fit.tmb$sdr$par.fixed[5],theta=fit.tmb$sdr$par.fixed[6:8]))
@@ -2266,10 +2268,10 @@ fit_aug<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z|grouping),data=xdfa,family=Gamma(lin
 
 
 
-gamma_devTMB <- function(par){ 
+gamma_devTMB <- function(par){
   gamma_dev_tmp <- fit.tmb$obj$fn
-  
-  
+
+
   d11 <- exp(par[6])^2
   d22<-exp(par[7])^2
   rho<-par[8]/sqrt(1+par[8]^2)
@@ -2277,13 +2279,13 @@ gamma_devTMB <- function(par){
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
+
   gamma_dev_tmp(par) -pen # brez 2* !!!
-  
-  
+
+
 }
 
-gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE) 
+gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE)
 
 
 res.ml<-paste(
@@ -2358,12 +2360,12 @@ res_sig<-cbind(tmb_sig,tmb_aug_sig,tmb_pen_sig)
 
 result.psi<-rbind(res1,res_sig)
   rownames(result.psi)[9:11]<-paste0("Sigma",1:3)
-  
+
 ##other param
 optimizer<-"Nelder-Mead"
 
 
-fit.tmb<-glmmTMB(Y~X-1 + 
+fit.tmb<-glmmTMB(Y~X-1 +
                    (Z-1 | grouping), data = xdf,family=Gamma(link="inverse"),
                  control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
 
@@ -2395,10 +2397,10 @@ fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
 
 
 
-gamma_devTMB <- function(par){ 
+gamma_devTMB <- function(par){
   gamma_dev_tmp <- fit.tmb$obj$fn
-  
-  
+
+
   d11 <- exp(par[6])^2
   d22<-exp(par[7])^2
   rho<-par[8]/sqrt(1+par[8]^2)
@@ -2406,14 +2408,14 @@ gamma_devTMB <- function(par){
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<--(nu+2+1)/2*log(det(D))-1/2*sum(diag(psi%*%Dm   ))
-  
+
   gamma_dev_tmp(par) -pen # brez 2* !!!
-  
-    
-  
+
+
+
 }
 
-gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE) 
+gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE)
 
 
 res.pd<-paste(
@@ -2518,10 +2520,10 @@ data(aids, package = "JM")
 aids$CD4[aids$CD4==0]<-1e-8
 
 aidss<-aids[aids$gender=="male"&aids$AZT=="failure"&aids$prevOI=="AIDS",]
-fit<-glmmTMB(CD4~obstime + drug + obstime:drug + 
+fit<-glmmTMB(CD4~obstime + drug + obstime:drug +
                (1 + obstime | patient), data = aidss,family=Gamma(link="log"))
 
-#fit<-glmer(CD4~obstime + drug + obstime:drug + 
+#fit<-glmer(CD4~obstime + drug + obstime:drug +
 #              (1 + obstime | patient), data = aidss,family=Gamma(link="inverse"))
 #glmer does not work for this example
 
@@ -2540,7 +2542,7 @@ grouping<-as.numeric(as.factor(aidss$patient))
 
 xdf<-list(Y=Y,X=X,Z=Z,grouping=grouping)
 
-fit.tmb<-glmmTMB(Y~X-1 + 
+fit.tmb<-glmmTMB(Y~X-1 +
                    (Z-1 | grouping), data = xdf,family=Gamma(link="log"),
                  control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
 
@@ -2570,10 +2572,10 @@ fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
 
 
 
-gamma_devTMB <- function(par){ 
+gamma_devTMB <- function(par){
   gamma_dev_tmp <- fit.tmb$obj$fn
-  
-  
+
+
   d11 <- exp(par[6])^2
   d22<-exp(par[7])^2
   rho<-par[8]/sqrt(1+par[8]^2)
@@ -2581,13 +2583,13 @@ gamma_devTMB <- function(par){
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
+
   gamma_dev_tmp(par) -pen # brez 2* !!!
-  
-  
+
+
 }
 
-gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE) 
+gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE)
 
 
 res.ml<-paste(
@@ -2670,7 +2672,7 @@ rownames(result.psi)[9:11]<-paste0("Sigma",1:3)
 #optimizer<-"Nelder-Mead"
 
 
-fit.tmb<-glmmTMB(Y~X-1 + 
+fit.tmb<-glmmTMB(Y~X-1 +
                    (Z-1 | grouping), data = xdf,family=Gamma(link="log"),
                  control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer)))
 
@@ -2702,10 +2704,10 @@ fit_aug2 <- glmmTMB:::fitTMB(fit_aug)
 
 
 
-gamma_devTMB <- function(par){ 
+gamma_devTMB <- function(par){
   gamma_dev_tmp <- fit.tmb$obj$fn
-  
-  
+
+
   d11 <- exp(par[6])^2
   d22<-exp(par[7])^2
   rho<-par[8]/sqrt(1+par[8]^2)
@@ -2713,14 +2715,14 @@ gamma_devTMB <- function(par){
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<--(nu+2+1)/2*log(det(D))-1/2*sum(diag(psi%*%Dm   ))
-  
+
   gamma_dev_tmp(par) -pen # brez 2* !!!
-  
-  
-  
+
+
+
 }
 
-gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE) 
+gamma_optim_TMB <- optim(par = fit.tmb$sdr$par.fixed, gamma_devTMB, method=optimizer,hessian=TRUE)
 
 
 res.pd<-paste(
@@ -2838,7 +2840,7 @@ fit_zipoisson <- glmmTMB(NCalls~(FT+ArrivalTime)*SexParent+
 
 alpha1=5
 beta1=2
- 
+
 
 
 
@@ -2863,7 +2865,7 @@ fittm<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z1|grouping1),data=xdf,family=poisson,
 
 pd1<-make_pseudo_data_rand_eigen_inter_alpha_beta(alpha=alpha1,beta=beta1,param="psi",const=1e9)
 
- 
+
 
 
 Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd1$data$Z)))
@@ -2883,7 +2885,7 @@ xdfa<-list(Y=Ya2,ofset=offset,X=Xa,Z1=Z1a,grouping1=grouping1a)
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = poisson,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],theta=fittm$sdr$par.fixed[7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -2898,12 +2900,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[7])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #ok
 Xa<-rbind(X,matrix(0,ncol=ncol(X),nrow=nrow(pd1$data$Z)))
 Z1a<-rbind(Z1,pd1$data$Z)
@@ -2921,7 +2923,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = poisson,
                 data=xdfa2, start=list(beta=fittm$sdr$par.fixed[1:6],theta=fittm$sdr$par.fixed[7]),
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
-#ranef for PD is the same as for fit2, but different for original data hence different D why?! 
+#ranef for PD is the same as for fit2, but different for original data hence different D why?!
 #the above means that we need to avoid specifying/using weights with TMB, the trick via the offset apparantely implements precision weights that we need!
 
 #zero inf pois
@@ -2932,7 +2934,7 @@ fittm<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z1|grouping1),data=xdf,family=poisson,zi
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = poisson,ziformula=~1,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],betazi=fittm$sdr$par.fixed[7],theta=fittm$sdr$par.fixed[8]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -2943,12 +2945,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[8])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #good enough!
 
 ##nbinom1, we have dispersion! how to handle it, as in gamma? no, it seems the same trick as for poisson works (not sure why!)
@@ -2960,7 +2962,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = nbinom1,ziformula=~1,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],betazi=fittm$sdr$par.fixed[7],
                                                   betad=fittm$sdr$par.fixed[8],theta=fittm$sdr$par.fixed[9]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -2971,12 +2973,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[9])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #not exactly the same but close
 
 
@@ -2988,7 +2990,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = nbinom1,ziformula=~0,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],
                                                   betad=fittm$sdr$par.fixed[7],
                                                   theta=fittm$sdr$par.fixed[8]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -2999,13 +3001,13 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[8])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
-#yes, the same! 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
+#yes, the same!
 
 #hurdle model
 fittm<-glmmTMB(Y~-1+X+offset(ofset)+(-1+Z1|grouping1),data=xdf,family=truncated_nbinom1,ziformula=~1,
@@ -3016,7 +3018,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = truncated_nbinom1,ziformula=~
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],betazi=fittm$sdr$par.fixed[7],
                                                   betad=fittm$sdr$par.fixed[8],theta=fittm$sdr$par.fixed[9]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -3027,12 +3029,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[9])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #very close!
 
 
@@ -3055,7 +3057,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = nbinom2,ziformula=~1,
                 offset=ofset,
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:6],betazi=fittm$sdr$par.fixed[7],
                                                   betad=fittm$sdr$par.fixed[8],theta=fittm$sdr$par.fixed[9]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 tmp2$data.tmb$doffset<-log(xdfa$weights) #this does not work for this param! (neither if we use -log)
@@ -3067,7 +3069,7 @@ tmp2 <- glmmTMB(Y~-1+X+(-1+Z1|grouping1), family = nbinom2,ziformula=~1,
                 dispformula = ~offset(log(weights)),
                 data=xdfa, start=list(beta=fittm$sdr$par.fixed[1:6],betazi=fittm$sdr$par.fixed[7],
                                                   betad=fittm$sdr$par.fixed[8],theta=fittm$sdr$par.fixed[9]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -3076,12 +3078,12 @@ pois_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn #dev od osnovnega modela
   x1 <-  1/exp(par[9])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
-  
+
+
   bin_dev_tmp(par) -pen1   # brez 2* !!!
 }
 
-pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE) 
+pois_optim_TMB <- optim(par = fittm$sdr$par.fixed, pois_devTMB, method=optimizer,hessian=TRUE)
 #ofcourse, it does not work since increasing the weights does not put variance to zero:
 #now it works fine
 
@@ -3119,10 +3121,10 @@ xdfa<-list(X=Xa,Z=Za,grouping=groupinga,Y=Ya,weights=na)
 
 
 tmp2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = beta_family(link="logit"),
-                
+
                 data=xdfa, doFit=FALSE,start=list(beta=fittm$sdr$par.fixed[1:5],betad=fittm$sdr$par.fixed[6],
                                                   theta=fittm$sdr$par.fixed[7:9]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -3143,12 +3145,12 @@ bin_devTMB <- function(par) {
   D<-matrix(c(d11,d12,d12,d22),ncol=2)
   Dm<-solve(D)
   pen<-(nu-2-1)/2*log(det(Dm))-1/2*sum(diag(solve(psi)%*%Dm   ))
-  
+
   bin_dev_tmp(par) -pen # brez 2* !!!
 }
 
 
-bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method=optimizer,hessian=TRUE) 
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method=optimizer,hessian=TRUE)
 #not even close! optim issues?? could be since we get very different res with different optim
 #closer but not close enough!
 #uni RE?
@@ -3184,7 +3186,7 @@ fit2 <- glmmTMB(Y~-1+X+(-1+Z|grouping), family = beta_family(link="logit"),
                 dispformula = ~offset(log(xdfa$weights)),#this is the same as if we use below
                 data=xdfa, start=list(beta=fittm$sdr$par.fixed[1:5],betad=fittm$sdr$par.fixed[6],
                                                   theta=fittm$sdr$par.fixed[7]),
-                
+
                 control=glmmTMBControl(optimizer=optim,optArgs=list(method=optimizer))
 )
 
@@ -3196,11 +3198,11 @@ bin_devTMB <- function(par) {
   bin_dev_tmp <- fittm$obj$fn
   x1 <-  1/exp(par[7])^2 #parameter ki ga penaliziras, moras ga najti!
   pen1<-((alpha1-1)*log(x1)-(beta1*(x1)))
-  
+
   bin_dev_tmp(par) -pen1 # brez 2* !!!
 }
 
 
-bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method=optimizer,hessian=TRUE) 
+bin_optim_TMB <- optim(par = fittm$sdr$par.fixed, bin_devTMB, method=optimizer,hessian=TRUE)
 
 #no, not close!
